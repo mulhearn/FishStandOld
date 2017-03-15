@@ -14,6 +14,7 @@ import java.nio.ByteBuffer;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.DngCreator;
 import android.os.Environment;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.content.Context;
 import android.hardware.camera2.CameraMetadata;
@@ -29,6 +30,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.graphics.ImageFormat;
 import android.util.Log;
+import android.util.Range;
 import android.util.SizeF;
 import android.util.Size;
 import android.view.Surface;
@@ -45,53 +47,238 @@ public class DaqWorker implements Runnable {
     private enum State {STOPPED, INIT, RUNNING}
     private State state;
     private boolean stopRequested;
-	private CameraManager manager;
-    private CameraCharacteristics usechars;
-	private Handler mhandler;
+
+    private Context context;
+    private Handler uihandler;
+    private Handler runhandler;
+    //private Handler bkghandler;
+
+    //camera2 api objects
+    private String cid;
+    private CameraManager cmanager;
+    private CameraDevice cdevice;
+    private CameraCharacteristics cchars;
+    private CameraCaptureSession csession;
 	private ImageReader ireader;
-	private CameraDevice cameraDevice;
-	private Context context;
-	private CameraCaptureSession msession;
-    private TotalCaptureResult capresult;
 
-	private final CameraDevice.StateCallback deviceCallback = new CameraDevice.StateCallback() {
-		@Override
-		public void onOpened(CameraDevice camera) {
-			//This is called when the camera is open
-			cameraDevice = camera;
-			Toast.makeText(context, "Camera Open", Toast.LENGTH_SHORT).show();
-		}
-		@Override
-		public void onDisconnected(CameraDevice camera) {
-			cameraDevice.close();
-		}
-		@Override
-		public void onError(CameraDevice camera, int error) {
-			cameraDevice.close();
-			cameraDevice = null;
-		}
-	};
+    // discovered camera properties for RAW format at highest resolution
+    private Size raw_size;
+    private long min_exp=0;
+    private long max_exp=0;
+    private long min_frame=0;
+    private long max_frame=0;
+    private int min_sens=0;
+    private int max_sens=0;
 
-	private final CameraCaptureSession.StateCallback sessionCallback = new CameraCaptureSession.StateCallback(){
-		@Override public void	onActive(CameraCaptureSession session){}
-		@Override public void	onClosed(CameraCaptureSession session){}
-		@Override public void	onConfigureFailed(CameraCaptureSession session){}
-		@Override public void	onConfigured(CameraCaptureSession session){
-			Toast.makeText(context, "Capture Session Configured", Toast.LENGTH_SHORT).show();
-			msession = session;
-		}
-		@Override public void	onReady(CameraCaptureSession session){}
-		@Override public void	onSurfacePrepared(CameraCaptureSession session, Surface surface){}
-	};
+
+    //event loop variables:
+    int event = 0;
 
     DaqWorker(Context context){
-		this.context = context;
-		state = State.STOPPED;
-		stopRequested = false;
-		summary = "";
-		log = "";
-		manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-	}
+        this.context = context;
+        state = State.STOPPED;
+        stopRequested = false;
+        summary = "";
+        log = "";
+        cmanager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+    }
+
+
+    public void Init() {
+        if (state == State.RUNNING){
+            return;
+        }
+        if (state == State.STOPPED) state = State.INIT;
+        events = 0;
+        summary="";
+        init_stage1();
+    }
+
+    //Due to asynchronous call back, init is broken into steps, with the callback from each step calling the next step.
+    // void init_stage1(); // open the camera device
+    // void init_stage2(); // request a capture session
+    // void init_stage3(); // take initial photo
+    // voit init_stage4(); // declare success, starting a run is allowed.
+
+    void init_stage1() {
+        try {
+            cid = "";
+            for (String id : cmanager.getCameraIdList()) {
+                summary += "camera id string:  " + id + "\n";
+                CameraCharacteristics chars = cmanager.getCameraCharacteristics(id);
+                // Does the camera have a forwards facing lens?
+                Integer facing = chars.get(CameraCharacteristics.LENS_FACING);
+
+                summary += "facing:  " + facing + "\n";
+                SizeF fsize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                Size isize = chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
+                summary += "physical sensor size:  " + fsize.getHeight() + " mm x " + fsize.getWidth() + " mm\n";
+                summary += "pixel array size:  " + isize.getHeight() + " x " + isize.getWidth() + "\n";
+
+                //check for needed capabilities:
+                Boolean manual_mode = false;
+                Boolean raw_mode = false;
+                int[] caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+                summary += "caps:  ";
+                for (int i : caps) {
+                    summary += i + ", ";
+                    if (i == CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR){ manual_mode = true; }
+                    if (i == CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_RAW){ raw_mode = true; }
+                }
+                summary += "\n";
+                summary += "RAW mode support:  " + raw_mode + "\n";
+                summary += "Manual mode support:  " + manual_mode + "\n";
+
+                if ((cid == "") && (facing == 1) && raw_mode && manual_mode) {
+                    cid = id;
+                }
+            }
+            if (cid != "") {
+                summary += "selected camera ID " + cid + "\n";
+                cchars = cmanager.getCameraCharacteristics(cid);
+                Size isize = cchars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
+                StreamConfigurationMap configs = cchars.get(
+                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                Boolean raw_available = false;
+                int[] fmts = configs.getOutputFormats();
+                for (int fmt : fmts) {
+                    if (fmt == ImageFormat.RAW_SENSOR) raw_available = true;
+                }
+                if (!raw_available) {
+                    summary += "RAW_SENSOR format not available.  Cannot init...";
+                    return;
+                }
+
+                Size[] sizes = configs.getOutputSizes(ImageFormat.RAW_SENSOR);
+                summary += "RAW format available sizes:  ";
+                int maxprod = 0;
+                for (Size s : sizes) {
+                    int h = s.getHeight();
+                    int w = s.getWidth();
+                    int p = h * w;
+                    summary += h + " x " + w + ",";
+                    if (p > maxprod) {
+                        maxprod = p;
+                        raw_size = s;
+                    }
+                }
+                summary += "\n";
+                summary += "Largest size is " + raw_size + "\n";
+
+                min_frame = configs.getOutputMinFrameDuration(ImageFormat.RAW_SENSOR,raw_size);
+                max_frame = cchars.get(CameraCharacteristics.SENSOR_INFO_MAX_FRAME_DURATION);
+                summary += "Frame length:  " + min_frame*1E-6 + " to " + max_frame*1E-6 + " ms\n";
+
+                Range<Long> rexp = cchars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
+                min_exp = rexp.getLower();
+                max_exp = rexp.getUpper();
+                summary += "Exposure range:  " + min_exp*1E-6 + " to " + max_exp*1E-6 + " ms\n";
+
+                Range<Integer> rsens = cchars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
+                min_sens = rsens.getLower();
+                max_sens = rsens.getUpper();
+                summary += "Sensitivity range:  " + min_sens + " to " + max_sens + " (ISO)\n";
+
+                cmanager.openCamera(cid, deviceCallback, uihandler);
+                if (cdevice == null) return;
+            } else {
+                summary += "Could not find camera device with sufficient capabilities.  Cannot init.";
+                return;
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    // call back from stage1, saves open camera device and calls stage2:
+
+    private final CameraDevice.StateCallback deviceCallback = new CameraDevice.StateCallback() {
+        @Override
+        public void onOpened(CameraDevice camera) {
+            //This is called when the camera is open
+            cdevice = camera;
+            Toast.makeText(context, "Camera Open", Toast.LENGTH_SHORT).show();
+            init_stage2();
+        }
+        @Override
+        public void onDisconnected(CameraDevice camera) {
+            cdevice.close();
+        }
+        @Override
+        public void onError(CameraDevice camera, int error) {
+            cdevice.close();
+            cdevice = null;
+        }
+    };
+
+    void init_stage2() {
+        // check camera open?  Or at least non-null?
+        summary += "camera is open.\n";
+
+        ireader = ImageReader.newInstance(raw_size.getWidth(), raw_size.getHeight(), ImageFormat.RAW_SENSOR, 1);
+        List<Surface> outputs = new ArrayList<Surface>(1);
+        outputs.add(ireader.getSurface());
+        try {
+            cdevice.createCaptureSession(outputs, sessionCallback, uihandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+        return;
+    }
+
+    private final CameraCaptureSession.StateCallback sessionCallback = new CameraCaptureSession.StateCallback(){
+        @Override public void	onActive(CameraCaptureSession session){}
+        @Override public void	onClosed(CameraCaptureSession session){}
+        @Override public void	onConfigureFailed(CameraCaptureSession session){}
+        @Override public void	onConfigured(CameraCaptureSession session){
+            Toast.makeText(context, "Capture Session Configured", Toast.LENGTH_SHORT).show();
+            csession = session;
+            init_stage3();
+        }
+        @Override public void	onReady(CameraCaptureSession session){}
+        @Override public void	onSurfacePrepared(CameraCaptureSession session, Surface surface){}
+    };
+
+
+    ImageReader.OnImageAvailableListener doNothingImageListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            summary += "initial test image available\n";
+            init_stage4();
+        }
+    };
+
+    final CameraCaptureSession.CaptureCallback doNothingCaptureListener = new CameraCaptureSession.CaptureCallback() {
+        @Override
+        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+            super.onCaptureCompleted(session, request, result);
+            if (result != null) {
+                Toast.makeText(context, "captured an image, results have size" + result.getPartialResults().size(), Toast.LENGTH_SHORT).show();
+            }
+        }
+    };
+
+    void init_stage3(){
+        //check capture session is available?
+        ireader.setOnImageAvailableListener(doNothingImageListener, uihandler);
+
+        try {
+            final CaptureRequest.Builder captureBuilder = cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
+            captureBuilder.addTarget(ireader.getSurface());
+            captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, min_exp);
+            captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, max_sens);
+            captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, max_frame);
+
+            csession.capture(captureBuilder.build(), doNothingCaptureListener, uihandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    void init_stage4(){
+        summary += "camera initialization has succeeded.\n";
+    }
 
 	void writeFiles(ByteBuffer buf) {
         File path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
@@ -157,145 +344,10 @@ public class DaqWorker implements Runnable {
         }
     }
 
-
-    public void Init() {
-        if (state == State.RUNNING) return;
-        if (state == State.STOPPED) state = State.INIT;
-        events = 0;
-        summary = "initialized\n";
-        if (cameraDevice == null) {
-            try {
-                String useId = "";
-                for (String cameraId : manager.getCameraIdList()) {
-                    summary += "id " + cameraId + "\n";
-                    CameraCharacteristics chars = manager.getCameraCharacteristics(cameraId);
-                    // Does the camera have a forwards facing lens?
-                    Integer facing = chars.get(CameraCharacteristics.LENS_FACING);
-                    summary += "facing:  " + facing + "\n";
-                    int level = chars.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-                    summary += "level:  " + level + " legacy: " + CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY + "\n";
-                    int[] caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
-                    summary += "caps:  ";
-                    for (int i : caps) {
-                        summary += i + ", ";
-                    }
-                    summary += "\n";
-                    SizeF fsize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
-                    Size isize = chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
-                    summary += "physical sensor size:  " + fsize.getHeight() + " mm x " + fsize.getWidth() + " mm\n";
-                    summary += "pixel array size:  " + isize.getHeight() + " x " + isize.getWidth() + "\n";
-                    Integer filt = chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
-                    summary += "filter pattern:  " + filt + "\n";
-
-                    if ((useId == "") && (facing == 1)) {
-                        useId = cameraId;
-                    }
-                }
-                if (true) return;
-                if (useId != "") {
-                    summary += "using cameraId " + useId + "\n";
-                    usechars = manager.getCameraCharacteristics(useId);
-                    Size isize = usechars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
-                    StreamConfigurationMap configs = usechars.get(
-                            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                    summary += "pixel array size:  " + isize.getHeight() + " x " + isize.getWidth() + "\n";
-                    summary += "formats:  ";
-                    int[] fmts = configs.getOutputFormats();
-                    for (int fmt : fmts) {
-                        summary += fmt + ", ";
-                    }
-                    summary += "RAW_SENSOR:  " + ImageFormat.RAW_SENSOR + "\n";
-                    Size[] sizes = configs.getOutputSizes(ImageFormat.RAW_SENSOR);
-                    summary += "sizes:  ";
-                    for (Size s : sizes) {
-                        summary += s.getHeight() + " x " + s.getWidth() + ",";
-                    }
-                    summary += "\n";
-                    ireader = ImageReader.newInstance(sizes[0].getWidth(), sizes[0].getHeight(), ImageFormat.RAW_SENSOR, 2);
-
-                    ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
-                        @Override
-                        public void onImageAvailable(ImageReader reader) {
-                            summary += "processing image...\n";
-                            Image image = null;
-                            image = reader.acquireLatestImage();  // or Next?
-                            summary += "time stamp:  " + image.getTimestamp() + "\n";
-                            summary += "num planes:  " + image.getPlanes().length + "\n";
-                            summary += "pixel stride:  " + image.getPlanes()[0].getPixelStride() + "\n";
-                            summary += "row stride:  " + image.getPlanes()[0].getRowStride() + "\n";
-                            ByteBuffer buf = image.getPlanes()[0].getBuffer();
-                            ByteBuffer buf2 = image.getPlanes()[0].getBuffer();
-                            int maxpix = 0;
-                            int minpix = 1024;
-
-                            long isum = 0;
-                            for (int row = 0; row < 3000; row++) {
-                                for (int col = 0; col < 5328; col++) {
-                                    //char x = buf.getChar();
-                                    char x = 0;
-                                    int ix = (int) x;
-                                    if (ix > maxpix) maxpix = ix;
-                                    if (ix < maxpix) minpix = ix;
-                                    isum += ix;
-                                }
-                            }
-                            double avg = isum / (3000.0 * 5328.0);
-                            summary += "max pix:  " + maxpix + "\n";
-                            summary += "min pix:  " + minpix + "\n";
-                            summary += "sum pix:  " + isum + "\n";
-                            summary += "avg pix:  " + avg + "\n";
-                            writeFiles(buf);
-                        }
-                    };
-                    ireader.setOnImageAvailableListener(readerListener, mhandler);
-
-                    List<Surface> outputSurfaces = new ArrayList<Surface>(1);
-                    outputSurfaces.add(ireader.getSurface());
-
-                    manager.openCamera(useId, deviceCallback, mhandler);
-                    if (cameraDevice == null) return;
-                }
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            }
-        } else if (msession == null) {
-            summary += "camera is open.\n";
-            List<Surface> outputs = new ArrayList<Surface>(1);
-            outputs.add(ireader.getSurface());
-            try {
-                cameraDevice.createCaptureSession(outputs, sessionCallback, mhandler);
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            }
-            return;
-        } else {
-            summary += "session is configured.\n";
-
-            final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
-                @Override
-                public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-                    super.onCaptureCompleted(session, request, result);
-                    if (result != null) {
-                        Toast.makeText(context, "captured an image, results have size" + result.getPartialResults().size(), Toast.LENGTH_SHORT).show();
-                    }
-                }
-            };
-
-            try {
-                final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                captureBuilder.addTarget(ireader.getSurface());
-                captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-                msession.capture(captureBuilder.build(), captureListener, mhandler);
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-
     public void Run(){
+        event = 0;
 		if (state == State.RUNNING) return;
-		if (state == State.STOPPED) Init();
+		if (state == State.STOPPED) return;
 		// start thread which handles the actual running...
 		new Thread(this).start();
     }
@@ -305,20 +357,73 @@ public class DaqWorker implements Runnable {
     }
 
     public void run(){
-		while(true){
-			events++;
-			summary = "running on event " + events + "\n";
-			state = State.RUNNING;
-		    if (stopRequested) {
-				stopRequested = false;
-				state = State.STOPPED;
-				summary = "stopped\n";
-				return;
-	    	}
-		    SystemClock.sleep(100);
-		}
-    }  
+        Looper.prepare();
+        runhandler = new Handler();
+        ireader.setOnImageAvailableListener(readerListener, runhandler);
+        next();
+        Looper.loop();
+    }
 
-    
-    
+    public void next(){
+        event++;
+        state = State.RUNNING;
+        if (stopRequested) {
+            stopRequested = false;
+            state = State.STOPPED;
+            summary += "stopped\n";
+            return;
+        }
+        try {
+            final CaptureRequest.Builder captureBuilder = cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
+            captureBuilder.addTarget(ireader.getSurface());
+            captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, max_exp);
+            captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, max_sens);
+            captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, max_frame);
+            csession.capture(captureBuilder.build(), doNothingCaptureListener, runhandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            Image image = null;
+            image = reader.acquireLatestImage();  // or Next?
+            //summary += "num planes:  " + image.getPlanes().length + "\n";
+            //summary += "pixel stride:  " + image.getPlanes()[0].getPixelStride() + "\n";
+            //summary += "row stride:  " + image.getPlanes()[0].getRowStride() + "\n";
+            ByteBuffer buf = image.getPlanes()[0].getBuffer();
+            ByteBuffer buf2 = image.getPlanes()[0].getBuffer();
+            int maxpix = 0;
+            int minpix = 1024;
+
+            long isum = 0;
+            for (int row = 0; row < 3000; row++) {
+                for (int col = 0; col < 5328; col++) {
+                    char x = buf.getChar();
+                    int ix = (int) x;
+                    if (ix > maxpix) maxpix = ix;
+                    if (ix < minpix) minpix = ix;
+                    isum += ix;
+                }
+            }
+            double avg = isum / (3000.0 * 5328.0);
+            summary = "event:  " + event + " time stamp:  " + image.getTimestamp() + "\n";
+            summary += "max pix:  " + maxpix + "\n";
+            summary += "min pix:  " + minpix + "\n";
+            summary += "sum pix:  " + isum + "\n";
+            summary += "avg pix:  " + avg + "\n";
+
+            image.close();
+            next();
+            //writeFiles(buf);
+        }
+    };
+
+
+
+
+
 }

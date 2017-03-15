@@ -30,7 +30,7 @@ public class RunFragment extends Fragment implements View.OnClickListener {
         @Override
         public void run() {
             textView.setText(worker.summary);
-            // Repeat this the same runnable code block again another 2 seconds
+            // Repeat this the same runnable code block again another 0.2 seconds
             handler.postDelayed(updater, 200);
         }
     };
@@ -59,19 +59,16 @@ public class RunFragment extends Fragment implements View.OnClickListener {
             Snackbar.make(view, "Initializing...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
             worker.Init();
-            textView.setText(worker.summary);
         }
         if (view == btrun){
             Snackbar.make(view, "Starting Run...", Snackbar.LENGTH_LONG)
 		            .setAction("Action", null).show();
             worker.Run();
-            textView.setText(worker.summary);
         }
         if (view == btstop){
             Snackbar.make(view, "Stopping Run...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
             worker.Stop();
-            textView.setText(worker.summary);
         }
     }
 
