@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Fish Stand</string>
+    <string name="action_settings">Settings</string>
+    <string name="future_header_format">Future Calibration: %1$d</string>
+    <string name="settings_header">Settings</string>
+    <string name="log_header">Log File</string>
+</resources>
