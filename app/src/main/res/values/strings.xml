@@ -4,4 +4,12 @@
     <string name="future_header_format">Future Calibration: %1$d</string>
     <string name="settings_header">Settings</string>
     <string name="log_header">Log File</string>
+    <string-array name="mode_array">
+        <item>Camera</item>
+        <item>Light Sensor</item>
+        <item>System Gain</item>
+        <item>Dark Noise</item>
+        <item>Source Run</item>
+        <item>Muon Run</item>
+    </string-array>
 </resources>

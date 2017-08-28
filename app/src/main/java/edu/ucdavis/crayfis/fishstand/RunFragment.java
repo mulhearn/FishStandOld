@@ -21,29 +21,31 @@ import android.widget.TextView;
 
 public class RunFragment extends Fragment implements View.OnClickListener {
 
+    public DaqWorker getDaq(){return BkgWorker.getBkgWorker().daq;}
+
     private Button btrun, btstop, btinit;
-    static private DaqWorker worker = null;
     private TextView textView;
 
     private Handler handler = new Handler();
+
     private Runnable updater = new Runnable() {
         @Override
         public void run() {
-            textView.setText(worker.summary);
             // Repeat this the same runnable code block again another 0.2 seconds
-            handler.postDelayed(updater, 200);
+            handler.postDelayed(updater, 500);
+
+            if (getDaq().update) {
+                getDaq().update = false;
+            textView.setText(getDaq().summary);
+            }
         }
     };
-
-    public RunFragment() {
-    }
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,
 				       Bundle savedInstanceState) {
 	    View view = inflater.inflate(R.layout.fragment_run, container, false);
 	    textView = (TextView) view.findViewById(R.id.fragment_text);
-        if (worker == null) worker = new DaqWorker(getActivity());
-        textView.setText(worker.summary);
+        textView.setText(getDaq().summary);
         btrun = (Button) view.findViewById(R.id.btrun);
         btrun.setOnClickListener(this);
         btstop = (Button) view.findViewById(R.id.btstop);
@@ -54,22 +56,26 @@ public class RunFragment extends Fragment implements View.OnClickListener {
 	    return view;
     }
 
+    @Override public void onDestroyView () {
+        handler.removeCallbacks(updater);
+        super.onDestroyView();
+    }
+
     @Override public void onClick(View view){
         if (view == btinit){
             Snackbar.make(view, "Initializing...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
-            worker.Init();
+            getDaq().InitPressed();
         }
         if (view == btrun){
             Snackbar.make(view, "Starting Run...", Snackbar.LENGTH_LONG)
 		            .setAction("Action", null).show();
-            worker.Run();
+            getDaq().RunPressed();
         }
         if (view == btstop){
             Snackbar.make(view, "Stopping Run...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
-            worker.Stop();
+            getDaq().StopPressed();
         }
     }
-
 }

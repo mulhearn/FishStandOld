@@ -1,6 +1,7 @@
 package edu.ucdavis.crayfis.fishstand;
 
 import android.Manifest;
+import android.os.Handler;
 import android.widget.Button;
 import android.support.design.widget.Snackbar;
 
@@ -25,13 +26,18 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.content.Context;
 
+import edu.ucdavis.crayfis.fishstand.BkgWorker;
+
 public class MainActivity extends AppCompatActivity { 
 
+    // A handler for the UI thread:
+    private Handler uihandler;
+
+    private BkgWorker worker;
 
     // Host the activity fragments:
     private SectionsPagerAdapter mSectionsPagerAdapter;
     private ViewPager mViewPager;
-
 
     // Required permissions are Camera and External Storage:
     private static final int MY_PERMISSIONS_REQUEST_CAMERA = 100;
@@ -86,8 +92,10 @@ public class MainActivity extends AppCompatActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
         }
+        uihandler = new Handler();
+        BkgWorker.startBkgWorker(getApplicationContext(),uihandler);
+        worker = BkgWorker.getBkgWorker();
     }
-
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -117,54 +125,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    /**
-     * settings fragment for future settings adjustments
-     */
-    public static class SettingsFragment extends Fragment {
-
-        public SettingsFragment() {
-        }
-
-        public static SettingsFragment newInstance() {
-            SettingsFragment fragment = new SettingsFragment();
-            return fragment;
-        }
-
-        @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                                 Bundle savedInstanceState) {
-            View rootView = inflater.inflate(R.layout.fragment_settings, container, false);
-            TextView textView = (TextView) rootView.findViewById(R.id.fragment_settings_text);
-            textView.setText(R.string.settings_header);
-            return rootView;
-        }
-    }
-
-
-    /**
-     * log fragment to display log file
-     */
-    public static class LogFragment extends Fragment {
-
-        public LogFragment() {
-        }
-
-        public static LogFragment newInstance() {
-            LogFragment fragment = new LogFragment();
-            return fragment;
-        }
-
-        @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                                 Bundle savedInstanceState) {
-            String log = "Example log entry...";
-            View rootView = inflater.inflate(R.layout.fragment_log, container, false);
-            TextView textView = (TextView) rootView.findViewById(R.id.fragment_log_text);
-            textView.setText(log);
-            return rootView;
-        }
-    }
-
 
     /**
      * A {@link FragmentPagerAdapter} that returns a fragment corresponding to
@@ -179,30 +139,27 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public Fragment getItem(int position) {
             // getItem is called to instantiate the fragment for the given page.
-            // Return a PlaceholderFragment (defined as a static inner class below).
             if (position == 0) {
-                Context context = getApplicationContext();
-                CharSequence text = "New Run Fragment Created...\n";
-                int duration = Toast.LENGTH_SHORT;
-                Toast toast = Toast.makeText(context, text, duration);
-                toast.show();
                 return new RunFragment();
             }
             if (position == 1) {
-                Context context = getApplicationContext();
-                CharSequence text = "New Settings Fragment Created...\n";
-                int duration = Toast.LENGTH_SHORT;
-                Toast toast = Toast.makeText(context, text, duration);
-                toast.show();
-                return SettingsFragment.newInstance();
+                return new ExposureFragment();
             }
-            return LogFragment.newInstance();
+            if (position == 2) {
+                return new ConfigFragment();
+            }
+            if (position == 3) {
+                return new CameraFragment();
+            }
+            if (position == 4) {
+                return new ResultFragment();
+            }
+            return new LogFragment();
         }
 
         @Override
         public int getCount() {
-            // Show 3 total pages.
-            return 3;
+            return 6;
         }
 
         @Override
@@ -214,6 +171,12 @@ public class MainActivity extends AppCompatActivity {
                     return "SECTION 2";
                 case 2:
                     return "SECTION 3";
+                case 3:
+                    return "SECTION 4";
+                case 4:
+                    return "SECTION 5";
+                case 5:
+                    return "SECTION 6";
             }
             return null;
         }

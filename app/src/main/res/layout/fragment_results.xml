@@ -1,0 +1,38 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingBottom="@dimen/activity_vertical_margin"
+    android:paddingLeft="@dimen/activity_horizontal_margin"
+    android:paddingRight="@dimen/activity_horizontal_margin"
+    android:paddingTop="@dimen/activity_vertical_margin"
+    tools:context="edu.ucdavis.crayfis.fishstand.ResultFragment">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:weightSum="1"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true">
+
+        <ImageView
+            android:id="@+id/image_result"
+            android:layout_width="match_parent"
+            android:layout_height="400dip"/>
+
+        <com.jjoe64.graphview.GraphView
+           android:layout_width="match_parent"
+           android:layout_height="100dip"
+           android:id="@+id/strip_graph" />
+
+        <Button
+            android:id="@+id/button_raw_preview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="RAW Preview" />
+
+    </LinearLayout>
+
+</RelativeLayout>
