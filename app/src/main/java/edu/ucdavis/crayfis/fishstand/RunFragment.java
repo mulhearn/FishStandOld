@@ -1,5 +1,6 @@
 package edu.ucdavis.crayfis.fishstand;
 
+import android.content.BroadcastReceiver;
 import android.widget.Button;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -21,43 +22,40 @@ import android.widget.TextView;
 
 public class RunFragment extends Fragment implements View.OnClickListener {
 
-    public DaqWorker getDaq(){return BkgWorker.getBkgWorker().daq;}
-
+    App app;
+    // GUI elements:
+    //  - run/stop/init buttons
+    //  - the txt summary
     private Button btrun, btstop, btinit;
     private TextView textView;
-
-    private Handler handler = new Handler();
-
-    private Runnable updater = new Runnable() {
-        @Override
-        public void run() {
-            // Repeat this the same runnable code block again another 0.2 seconds
-            handler.postDelayed(updater, 500);
-
-            if (getDaq().update) {
-                getDaq().update = false;
-            textView.setText(getDaq().summary);
-            }
-        }
-    };
+    // The updater which handles requests to update daq summary in GUI
+    private BroadcastReceiver updater;
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,
 				       Bundle savedInstanceState) {
 	    View view = inflater.inflate(R.layout.fragment_run, container, false);
-	    textView = (TextView) view.findViewById(R.id.fragment_text);
-        textView.setText(getDaq().summary);
+        MainActivity m = (MainActivity) getActivity();
+        app = m.getApp();
+
+        textView = (TextView) view.findViewById(R.id.fragment_text);
         btrun = (Button) view.findViewById(R.id.btrun);
         btrun.setOnClickListener(this);
         btstop = (Button) view.findViewById(R.id.btstop);
         btstop.setOnClickListener(this);
         btinit = (Button) view.findViewById(R.id.btinit);
         btinit.setOnClickListener(this);
-        updater.run();
+
+        updater = app.getMessage().onDaqSummaryUpdate(new Runnable(){
+            public void run(){
+                textView.setText(app.getDaq().log.getTxt());
+            }
+        });
+        app.getMessage().updateDaqSummary();
 	    return view;
     }
 
     @Override public void onDestroyView () {
-        handler.removeCallbacks(updater);
+        app.getMessage().unregister(updater);
         super.onDestroyView();
     }
 
@@ -65,17 +63,17 @@ public class RunFragment extends Fragment implements View.OnClickListener {
         if (view == btinit){
             Snackbar.make(view, "Initializing...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
-            getDaq().InitPressed();
+            app.getDaq().InitPressed();
         }
         if (view == btrun){
             Snackbar.make(view, "Starting Run...", Snackbar.LENGTH_LONG)
 		            .setAction("Action", null).show();
-            getDaq().RunPressed();
+            app.getDaq().RunPressed();
         }
         if (view == btstop){
             Snackbar.make(view, "Stopping Run...", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show();
-            getDaq().StopPressed();
+            app.getDaq().StopPressed();
         }
     }
 }

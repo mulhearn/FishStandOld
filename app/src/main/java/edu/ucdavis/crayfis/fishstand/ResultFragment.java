@@ -49,25 +49,13 @@ import java.util.ArrayList;
 
 public class ResultFragment extends Fragment implements View.OnClickListener
 {
+    App app;
+
     int iso;
     long exposure;
     int delay;
     final int scale_factor = 1000;
     Boolean enable_edits = false;
-
-    public BkgWorker getBkgWorker() {
-        return BkgWorker.getBkgWorker();
-    }
-    //public CameraConfig getCamera() {return BkgWorker.getBkgWorker().camera;}
-    public DaqWorker getDaq() {
-        return BkgWorker.getBkgWorker().daq;
-    }
-    public Handler getBkgHandler() {
-        return BkgWorker.getBkgWorker().getBkgHandler();
-    }
-    public Handler getUiHandler() {
-        return BkgWorker.getBkgWorker().getUiHandler();
-    }
 
     private Spinner spinner;
     private EditText exposure_value;
@@ -85,13 +73,16 @@ public class ResultFragment extends Fragment implements View.OnClickListener
 				       Bundle savedInstanceState) {
 	    View view = inflater.inflate(R.layout.fragment_results, container, false);
 
-        updater = Message.onResultUpdate(new Runnable(){
+        MainActivity m = (MainActivity) getActivity();
+        app = m.getApp();
+
+        updater = app.getMessage().onResultUpdate(new Runnable(){
             public void run(){
-                if (getDaq().bitmap != null){
-                    image.setImageBitmap(getDaq().bitmap);
+                if (app.getDaq().bitmap != null){
+                    image.setImageBitmap(app.getDaq().bitmap);
                 }
-                if (getDaq().pixels != null){
-                    series.resetData(getDaq().pixels.asDataPoints());
+                if (app.getDaq().pixels != null){
+                    series.resetData(app.getDaq().pixels.asDataPoints());
                 }
             }});
 
@@ -111,13 +102,13 @@ public class ResultFragment extends Fragment implements View.OnClickListener
         btexp = (Button) view.findViewById(R.id.button_raw_preview);
         btexp.setOnClickListener(this);
 
-        Message.updateResult();
+        app.getMessage().updateResult();
 
         return view;
     }
 
     @Override public void onDestroyView() {
-        Message.unregister(updater);
+        app.getMessage().unregister(updater);
         enable_edits = false;
         super.onDestroyView();
     }

@@ -29,11 +29,13 @@ import edu.ucdavis.crayfis.fishstand.Analysis;
 
 
 public class Photo implements Analysis {
+    App app;
     int requested;
     int processed;
 
-    public static Analysis newPhoto(){
+    public static Analysis newPhoto(App app){
         Photo photo = new Photo();
+        photo.app = app;
         return photo;
     }
 
@@ -74,14 +76,14 @@ public class Photo implements Analysis {
         int pw = iplane.getPixelStride();
         int rw = iplane.getRowStride();
 
-        BkgWorker.getBkgWorker().daq.bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        final Bitmap bm = BkgWorker.getBkgWorker().daq.bitmap;
+        app.getDaq().bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        final Bitmap bm = app.getDaq().bitmap;
 
         for (int i = 0; i < h; i++) {
             for (int j = 0; j < w; j++) {
                 int index = rw*(off_h + i) + pw*(off_w + j);
                 char b = buf.getChar(index);
-                BkgWorker.getBkgWorker().daq.pixels.increment(b);
+                app.getDaq().pixels.increment(b);
 
                 if (b > 0xff) b = 0xff;
                 byte x = (byte) b;

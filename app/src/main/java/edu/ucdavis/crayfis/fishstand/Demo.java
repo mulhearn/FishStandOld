@@ -17,6 +17,7 @@ import java.nio.ByteBuffer;
 import edu.ucdavis.crayfis.fishstand.Analysis;
 
 public class Demo implements Analysis {
+    App app;
 
     final int total        = 100;
     int requested;
@@ -27,8 +28,9 @@ public class Demo implements Analysis {
     final int cell_size = 100;
 
 
-    public static Analysis newDemo(){
+    public static Analysis newDemo(App app){
         Demo gain = new Demo();
+        gain.app = app;
         return gain;
     }
 
@@ -82,11 +84,12 @@ public class Demo implements Analysis {
             if (x != 0) trigger = true;
         }
 
-        if (BkgWorker.getBkgWorker().daq.getState() != DaqWorker.State.STOPPED) {
-            BkgWorker.getBkgWorker().daq.summary = "";
-            BkgWorker.getBkgWorker().daq.summary += "on event " + processed + "\n";
-            BkgWorker.getBkgWorker().daq.summary += "trigger:  " + trigger + "\n";
-            BkgWorker.getBkgWorker().daq.update = true;
+        if (app.getDaq().getState() != DaqWorker.State.STOPPED) {
+            app.getDaq().log.clear();
+            String summary = "";
+            summary += "on event " + processed + "\n";
+            summary += "trigger:  " + trigger + "\n";
+            app.getDaq().log.append(summary);
             processed = processed + 1;
         }
     }
@@ -104,7 +107,7 @@ public class Demo implements Analysis {
             FileWriter writer = new FileWriter(outfile);
     	    writer.append("demo processed " + processed + " events.\n");
         } catch (IOException e) {
-            BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in Demo analysis.";
+            app.log.append("ERROR opening txt file in Demo analysis.");
             e.printStackTrace();
         }
     }

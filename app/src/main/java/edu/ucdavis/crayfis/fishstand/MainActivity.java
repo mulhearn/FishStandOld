@@ -26,14 +26,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.content.Context;
 
-import edu.ucdavis.crayfis.fishstand.BkgWorker;
+import edu.ucdavis.crayfis.fishstand.App;
 
 public class MainActivity extends AppCompatActivity { 
 
     // A handler for the UI thread:
     private Handler uihandler;
 
-    private BkgWorker worker;
+    private App app;
+    public App getApp(){ return app;}
 
     // Host the activity fragments:
     private SectionsPagerAdapter mSectionsPagerAdapter;
@@ -93,8 +94,7 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
         }
         uihandler = new Handler();
-        BkgWorker.startBkgWorker(getApplicationContext(),uihandler);
-        worker = BkgWorker.getBkgWorker();
+        app = new App(getApplicationContext(),uihandler);
     }
 
     @Override

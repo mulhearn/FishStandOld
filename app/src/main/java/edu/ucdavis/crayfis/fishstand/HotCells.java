@@ -18,6 +18,7 @@ import java.util.Random;
 import edu.ucdavis.crayfis.fishstand.Analysis;
 
 public class HotCells implements Analysis {
+    App app;
 
     // algorithm parameters:
     final int pixel_thresh   = 100;
@@ -48,8 +49,9 @@ public class HotCells implements Analysis {
 
     File trigfile;
 
-    public static Analysis newHotCells(){
+    public static Analysis newHotCells(App app){
         HotCells x = new HotCells();
+        x.app = app;
         return x;
     }
 
@@ -85,7 +87,7 @@ public class HotCells implements Analysis {
                 writer.flush();
                 writer.close();
             } catch (IOException e) {
-                BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in CharHist.";
+                app.getDaq().log.append("ERROR opening txt file in CharHist.");
                 e.printStackTrace();
             }
         }
@@ -216,7 +218,7 @@ public class HotCells implements Analysis {
                         writer.flush();
                         writer.close();
                     } catch (IOException e) {
-                        BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in CharHist.";
+                        app.getDaq().log.append("ERROR opening txt file in CharHist.");
                         e.printStackTrace();
                     }
                 }

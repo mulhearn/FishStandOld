@@ -71,7 +71,6 @@ public class CharHist {
             writer.close();
 
         } catch (IOException e) {
-            BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in CharHist.";
             e.printStackTrace();
         }
 

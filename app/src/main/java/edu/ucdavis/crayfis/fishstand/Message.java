@@ -4,13 +4,10 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Handler;
 import android.support.v4.content.LocalBroadcastManager;
 
-
-
-
-
-// a simple way to send update messages:
+// a simple way to send update messages between GUI and asynchronous worker threads
 
 // produced new XXX data?
 // -> Message.updateXXX();
@@ -22,31 +19,43 @@ import android.support.v4.content.LocalBroadcastManager;
 //      Message.unregister(updater)
 
 public class Message {
+    private Context context;
+    Message(Context context){ this.context = context; }
+
     // message types
-    static final public String UPDATE_LOG   = "update-log";  // run results updates
-    static final public String UPDATE_CAMERA   = "update-camera";  // camera config updates
-    static final public String UPDATE_EXPOSURE = "update-exposure";  // camera config updates
-    static final public String UPDATE_RESULT   = "update-results";  // run results updates
+    static final public String UPDATE_LOG = "update-log";  // app-wide log file updates
+    static final public String UPDATE_DAQ_SUMMARY = "update-daq-summary";  // daq summary updates
+    static final public String UPDATE_CAMERA_SUMMARY = "update-camera-summary";  // camera summary updates
+    static final public String UPDATE_EXPOSURE_SETTINGS = "update-exposure-settings";  // camera exposure settings updates
+    static final public String UPDATE_EXPOSURE_RESULTS = "update-exposure-results";  // exposure check results updates
 
-    static public void updateLog(){ send(UPDATE_LOG); }
-    static public BroadcastReceiver onLogUpdate(Runnable r){ return onMessage(r, UPDATE_LOG); }
+    public void updateLog(){ send(UPDATE_LOG); }
+    public BroadcastReceiver onLogUpdate(Runnable r){ return onMessage(r, UPDATE_LOG); }
 
-    static public void updateCamera(){ send(UPDATE_CAMERA); }
-    static public BroadcastReceiver onCameraUpdate(Runnable r){ return onMessage(r, UPDATE_CAMERA); }
+    public void updateDaqSummary(){ send(UPDATE_DAQ_SUMMARY); }
+    public BroadcastReceiver onDaqSummaryUpdate(Runnable r){ return onMessage(r, UPDATE_DAQ_SUMMARY); }
 
-    static public void updateExposure(){ send(UPDATE_EXPOSURE); }
-    static public BroadcastReceiver onExposureUpdate(Runnable r){ return onMessage(r, UPDATE_EXPOSURE); }
+    public void updateCameraSummary(){ send(UPDATE_CAMERA_SUMMARY); }
+    public BroadcastReceiver onCameraSummaryUpdate(Runnable r){ return onMessage(r, UPDATE_CAMERA_SUMMARY); }
 
-    static public void updateResult(){ send(UPDATE_RESULT); }
-    static public BroadcastReceiver onResultUpdate(Runnable r){ return onMessage(r, UPDATE_RESULT); }
+    public void updateExposureSettings(){ send(UPDATE_EXPOSURE_SETTINGS); }
+    public BroadcastReceiver onExposureSettingsUpdate(Runnable r){ return onMessage(r, UPDATE_EXPOSURE_SETTINGS); }
 
-    static public void unregister(BroadcastReceiver r) {
-        LocalBroadcastManager.getInstance(BkgWorker.getBkgWorker().getContext().getApplicationContext()).unregisterReceiver(r);
+    public void updateExposureResults(){ send(UPDATE_EXPOSURE_RESULTS); }
+    public BroadcastReceiver onExposureResultsUpdate(Runnable r){ return onMessage(r, UPDATE_EXPOSURE_RESULTS); }
+
+
+    final public String UPDATE_RESULT   = "update-results";  // run results updates
+    public void updateResult(){ send(UPDATE_RESULT); }
+    public BroadcastReceiver onResultUpdate(Runnable r){ return onMessage(r, UPDATE_RESULT); }
+
+    public void unregister(BroadcastReceiver r) {
+        LocalBroadcastManager.getInstance(context.getApplicationContext()).unregisterReceiver(r);
     }
 
     // generic versions:
 
-    static public BroadcastReceiver onMessage(final Runnable r, final String action){
+    public BroadcastReceiver onMessage(final Runnable r, final String action){
         IntentFilter filter = new IntentFilter(action);
 
         BroadcastReceiver receiver = new BroadcastReceiver(){
@@ -56,12 +65,12 @@ public class Message {
                 }
             }
         };
-        LocalBroadcastManager.getInstance(BkgWorker.getBkgWorker().getContext().getApplicationContext()).registerReceiver(receiver,filter);
+        LocalBroadcastManager.getInstance(context.getApplicationContext()).registerReceiver(receiver,filter);
         return receiver;
     }
 
-    static public void send(final String action) {
-        LocalBroadcastManager.getInstance(BkgWorker.getBkgWorker().getContext().getApplicationContext()).sendBroadcast(new Intent(action));
+    public void send(final String action) {
+        LocalBroadcastManager.getInstance(context.getApplicationContext()).sendBroadcast(new Intent(action));
     }
 
 }

@@ -17,6 +17,7 @@ import java.nio.ByteBuffer;
 import edu.ucdavis.crayfis.fishstand.Analysis;
 
 public class Gain implements Analysis {
+    App app;
 
     final int total        = 1000;
     final int sample_num   = 10;
@@ -37,8 +38,9 @@ public class Gain implements Analysis {
 
     Result results[];
 
-    public static Analysis newGain(){
+    public static Analysis newGain(App app){
         Gain gain = new Gain();
+        gain.app = app;
         return gain;
     }
 
@@ -96,17 +98,18 @@ public class Gain implements Analysis {
             for (int j = 0; j < w; j++) {
                 int index = rw * (off_h + i) + pw * (off_w + j);
                 char b = buf.getChar(index);
-                BkgWorker.getBkgWorker().daq.pixels.increment(b);
+                app.getDaq().pixels.increment(b);
                 int iflat = i*w+j;
                 double x = (double) b;
                 results[isample].sum[iflat] += x;
                 results[isample].sum_sq[iflat] += x*x;
             }
         }
-        BkgWorker.getBkgWorker().daq.summary = "";
-        BkgWorker.getBkgWorker().daq.summary += results[isample].sum[0] + ", " + results[isample].sum_sq[0] + ", " + results[isample].sum_n + "\n";
-        BkgWorker.getBkgWorker().daq.summary += results[isample].sum[1] + ", " + results[isample].sum_sq[1] + ", " + results[isample].sum_n + "\n";
-        BkgWorker.getBkgWorker().daq.update = true;
+        app.getDaq().log.clear();
+        String summary = "";
+        summary += results[isample].sum[0] + ", " + results[isample].sum_sq[0] + ", " + results[isample].sum_n + "\n";
+        summary += results[isample].sum[1] + ", " + results[isample].sum_sq[1] + ", " + results[isample].sum_n + "\n";
+        app.getDaq().log.append(summary);
         processed = processed+1;
     }
 
@@ -127,7 +130,7 @@ public class Gain implements Analysis {
             writer.flush();
             writer.close();
         } catch (IOException e) {
-            BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in Gain analysis.";
+            app.getDaq().log.append("ERROR opening txt file in Gain analysis.");
             e.printStackTrace();
         }
     }

@@ -1,24 +1,9 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.text.DateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.ArrayList;
-import java.nio.ByteBuffer;
-
-import android.content.Intent;
-import android.hardware.camera2.CaptureResult;
-import android.hardware.camera2.DngCreator;
-import android.os.Environment;
-import android.os.Looper;
-import android.os.SystemClock;
 import android.content.Context;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.TotalCaptureResult;
@@ -32,21 +17,15 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.media.Image;
 import android.media.ImageReader;
 import android.graphics.ImageFormat;
-import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
 import android.util.Range;
 import android.util.SizeF;
 import android.util.Size;
 import android.view.Surface;
-import android.os.Handler;
-import android.widget.Toast;
 
-import static android.content.ContentValues.TAG;
-import edu.ucdavis.crayfis.fishstand.BkgWorker;
 
 public class CameraConfig {
-    public String summary = "";
-    public Boolean update = false;
+    final public App app;
+    final public Log log;
 
     //camera2 api objects
     public String cid;
@@ -67,15 +46,10 @@ public class CameraConfig {
     public int min_sens=0;
     public int max_sens=0;
 
-    // selected camera configuration: (in GUI, this is set in ExposureFragment):
-    public int sens_n=0;
-    public int delay=0;
-    public long exposure = 0;
-
-    public long getExposure(){return exposure;}
-    public int getSensitivity(){return min_sens * (1 << sens_n);}
-
-
+    public CameraConfig(final App app){
+        this.app = app;
+        log = new Log(new Runnable() {public void run(){app.getMessage().updateCameraSummary();}});
+    }
 
     public void Init() {
         Runnable r = new Runnable() {
@@ -83,7 +57,7 @@ public class CameraConfig {
                 init_stage1();
             }
         };
-        BkgWorker.getBkgWorker().getBkgHandler().post(r);
+        app.getBkgHandler().post(r);
     }
 
     //Due to asynchronous call back, init is broken into steps, with the callback from each step
@@ -95,13 +69,14 @@ public class CameraConfig {
     // voit init_stage4(); // declare success
 
     private void init_stage1() {
-        summary = "init started at "
-                + DateFormat.getDateTimeInstance().format(new Date(System.currentTimeMillis())) + "\n";
-        update = true;
-        cmanager = (CameraManager) BkgWorker.getBkgWorker().getContext().getSystemService(Context.CAMERA_SERVICE);
+        log.clear();
+        log.append("init started at "
+                + DateFormat.getDateTimeInstance().format(new Date(System.currentTimeMillis())) + "\n");
+        cmanager = (CameraManager) app.getContext().getSystemService(Context.CAMERA_SERVICE);
         try {
             cid = "";
             for (String id : cmanager.getCameraIdList()) {
+                String summary = "";
                 summary += "camera id string:  " + id + "\n";
                 CameraCharacteristics chars = cmanager.getCameraCharacteristics(id);
                 // Does the camera have a forwards facing lens?
@@ -126,13 +101,13 @@ public class CameraConfig {
                 summary += "\n";
                 summary += "RAW mode support:  " + raw_mode + "\n";
                 summary += "Manual mode support:  " + manual_mode + "\n";
-                update = true;
-
                 if ((cid == "") && (facing == 1) && raw_mode && manual_mode) {
                     cid = id;
                 }
+                log.append(summary);
             }
             if (cid != "") {
+                String summary = "";
                 summary += "selected camera ID " + cid + "\n";
                 cchars = cmanager.getCameraCharacteristics(cid);
                 Size isize = cchars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
@@ -145,7 +120,6 @@ public class CameraConfig {
                 }
                 if (!raw_available) {
                     summary += "RAW_SENSOR format not available.  Cannot init...";
-                    update = true;
                     return;
                 }
 
@@ -188,19 +162,20 @@ public class CameraConfig {
                 max_exp = rexp.getUpper();
                 summary += "Exposure range:  " + min_exp*1E-6 + " to " + max_exp*1E-6 + " ms\n";
                 // set default selected exposure to maximum:
-                exposure = max_exp;
 
                 Range<Integer> rsens = cchars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
                 min_sens = rsens.getLower();
                 max_sens = rsens.getUpper();
-                sens_n = 0;
                 summary += "Sensitivity range:  " + min_sens + " to " + max_sens + " (ISO)\n";
-                update = true;
+                log.append(summary);
 
-                cmanager.openCamera(cid, deviceCallback, BkgWorker.getBkgWorker().getBkgHandler());
+                app.getSettings().exposure = max_exp;
+                app.getSettings().isens = 0;
+                app.log.append("Camera settings initialized.\n");
+                app.getMessage().updateExposureSettings();
+                cmanager.openCamera(cid, deviceCallback, app.getBkgHandler());
             } else {
-                summary += "Could not find camera device with sufficient capabilities.  Cannot init.";
-                Message.updateCamera();
+                log.append("Could not find camera device with sufficient capabilities.  Cannot init.");
                 return;
             }
         } catch (CameraAccessException e) {
@@ -216,7 +191,7 @@ public class CameraConfig {
         public void onOpened(CameraDevice camera) {
             //This is called when the camera is open
             cdevice = camera;
-            BkgWorker.getBkgWorker().short_toast("Camera Open");
+            app.log.append("Camera is open.\n");
             init_stage2();
         }
         @Override
@@ -232,15 +207,13 @@ public class CameraConfig {
 
     void init_stage2() {
         //summary += "stage1 init success\n";
-        update = true;
         // check camera open?  Or at least non-null?
-        summary += "camera is open.\n";
-        update = true;
+        log.append("camera is open.\n");
         ireader = ImageReader.newInstance(raw_size.getWidth(), raw_size.getHeight(), ImageFormat.RAW_SENSOR, max_images);
         List<Surface> outputs = new ArrayList<Surface>(1);
         outputs.add(ireader.getSurface());
         try {
-            cdevice.createCaptureSession(outputs, sessionCallback, BkgWorker.getBkgWorker().getBkgHandler());
+            cdevice.createCaptureSession(outputs, sessionCallback, app.getBkgHandler());
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -248,22 +221,22 @@ public class CameraConfig {
     }
 
     private final CameraCaptureSession.StateCallback sessionCallback = new CameraCaptureSession.StateCallback(){
-        @Override public void	onActive(CameraCaptureSession session){BkgWorker.getBkgWorker().daq.onActive(session);}
-        @Override public void	onClosed(CameraCaptureSession session){BkgWorker.getBkgWorker().daq.onClosed(session);}
+        @Override public void	onActive(CameraCaptureSession session){app.getDaq().onActive(session);}
+        @Override public void	onClosed(CameraCaptureSession session){app.getDaq().onClosed(session);}
         @Override public void	onConfigureFailed(CameraCaptureSession session){}
         @Override public void	onConfigured(CameraCaptureSession session){
-            BkgWorker.getBkgWorker().short_toast("Capture Session Configured");
+            app.log.append("Camera capture session configured.\n");
             csession = session;
             init_stage3();
         }
-        @Override public void	onReady(CameraCaptureSession session){BkgWorker.getBkgWorker().daq.onReady(session);}
-        @Override public void	onSurfacePrepared(CameraCaptureSession session, Surface surface){BkgWorker.getBkgWorker().daq.onSurfacePrepared(session,surface);}
+        @Override public void	onReady(CameraCaptureSession session){app.getDaq().onReady(session);}
+        @Override public void	onSurfacePrepared(CameraCaptureSession session, Surface surface){app.getDaq().onSurfacePrepared(session,surface);}
     };
 
     void init_stage3(){
         //summary += "stage2 init success\n";
         //check capture session is available?
-        ireader.setOnImageAvailableListener(doNothingImageListener, BkgWorker.getBkgWorker().getBkgHandler());
+        ireader.setOnImageAvailableListener(doNothingImageListener, app.getBkgHandler());
 
         try {
             final CaptureRequest.Builder captureBuilder = cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
@@ -272,7 +245,7 @@ public class CameraConfig {
             captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, max_sens);
             captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, max_frame);
 
-            csession.capture(captureBuilder.build(), doNothingCaptureListener, BkgWorker.getBkgWorker().getBkgHandler());
+            csession.capture(captureBuilder.build(), doNothingCaptureListener, app.getBkgHandler());
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -282,11 +255,12 @@ public class CameraConfig {
         @Override
         public void onImageAvailable(ImageReader reader) {
             Image img = reader.acquireLatestImage();
-            BkgWorker.getBkgWorker().short_toast("Test Image Available");
+            app.log.append("Test image acquired successfully.\n");
+            String summary = "";
             summary += "initial test image available\n";
             summary += "row stride: " + img.getPlanes()[0].getRowStride() + "\n";
             summary += "pixel stride: " + img.getPlanes()[0].getPixelStride() + "\n";
-            update = true;
+            log.append(summary);
             img.close();
             init_stage4();
         }
@@ -297,16 +271,13 @@ public class CameraConfig {
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
             if (result != null) {
-                int s = result.getPartialResults().size();
-                BkgWorker.getBkgWorker().short_toast("Capture Complete, size " + s + "\n");
+                app.log.append("Non-null total capture results received.\n");
             }
         }
     };
 
     void init_stage4(){
-        summary += "camera initialization has succeeded.\n";
-        update = true;
-        Message.updateCamera();
+        log.append("camera initialization has succeeded.\n");
     }
 
 }

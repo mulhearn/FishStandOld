@@ -15,41 +15,31 @@ import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 
 public class DaqWorker implements ImageReader.OnImageAvailableListener {
+    final private App app;
+    final public Log log;
+
+    public DaqWorker(App appp){
+        this.app = appp;
+        state = State.STOPPED;
+        processing = 0;
+        log = new Log(new Runnable() {public void run(){app.getMessage().updateDaqSummary();}});
+        log.clear();
+    }
+
     int events, failed, stopped, lost;
     long run_start, run_end;
-
-    public String summary = "";
-    public Boolean update = false;
 
     public Bitmap bitmap;
     public CharHist pixels = new CharHist((char) 0x3ff, (char) 2);
 
     public enum State {STOPPED, INIT, RUNNING}
-
     private State state;
 
     final State getState(){ return state; }
 
-    // convenient access to items from BkgWorker:
-    public BkgWorker getBkgWorker() {
-        return BkgWorker.getBkgWorker();
-    }
-
-    public CameraConfig getCamera() {
-        return BkgWorker.getBkgWorker().camera;
-    }
-
-    public Analysis getAnalysis() {
-        return BkgWorker.getBkgWorker().analysis.getAnalysis();
-    }
-
-    public Handler getBkgHandler() {
-        return BkgWorker.getBkgWorker().getBkgHandler();
-    }
-
     // delegation of CameraCaptureSession's StateCallback, called from CameraConfig except for config
     public void onReady(CameraCaptureSession session) {
-        if (state != state.RUNNING) return;
+        if (state != State.RUNNING) return;
         Next();
     }
 
@@ -98,7 +88,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         //     run in another thread after image is closed
 
         try {
-            getAnalysis().ProcessImage(img);
+            app.getChosenAnalysis().ProcessImage(img);
             img.close();
         } catch (IllegalStateException e) {
             onImageProcessed(ImageJobStatus.FAILED);
@@ -114,8 +104,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 }
             }
         };
-        getBkgHandler().post(r);
-
+        app.getBkgHandler().post(r);
     }
 
     private enum ImageJobStatus {SUCCESS, FAILED, STOPPED, LOST}
@@ -125,7 +114,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
             processing = processing - 1;
             events = events + 1;
             // clear the summary prior to next update.
-            if (events%2 ==0) summary="";
+            if (events%2 ==0) log.clear();
         }
         if (status == ImageJobStatus.FAILED) {
             processing = processing - 1;
@@ -138,29 +127,21 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
             lost = lost + 1;
         }
 
-        summary += "image processing finished with status " + status + "\n";
-        Message.updateResult();
+        log.append("image processing finished with status " + status + "\n");
+        app.getMessage().updateResult();
 
-        if (getAnalysis().Done()) {
-            summary += "analysis is completed\n";
-            update = true;
+        if (app.getChosenAnalysis().Done()) {
+            log.append("analysis is completed\n");
             Stop();
         } else {
-            summary += "analysis continues\n";
-            update = true;
+            log.append("analysis continues\n");
         }
 
     }
 
 
     //event loop variables:
-    int processing;
-
-    DaqWorker() {
-        state = State.STOPPED;
-        processing = 0;
-        summary = "";
-    }
+    private int processing;
 
     public void InitPressed() {
         Runnable r = new Runnable() {
@@ -168,7 +149,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 Init();
             }
         };
-        getBkgHandler().post(r);
+        app.getBkgHandler().post(r);
     }
 
     public void RunPressed() {
@@ -177,7 +158,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 Run();
             }
         };
-        getBkgHandler().post(r);
+        app.getBkgHandler().post(r);
     }
 
 
@@ -187,19 +168,18 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 Stop();
             }
         };
-        getBkgHandler().post(r);
+        app.getBkgHandler().post(r);
     }
 
     private void Init() {
-        if (state != state.STOPPED) return;
+        if (state != State.STOPPED) return;
 
-        getBkgWorker().appendLog("New run initialized.\n");
+        app.log.append("New run initialized.\n");
 
-        getCamera().ireader.setOnImageAvailableListener(this, getBkgHandler());
+        app.getCamera().ireader.setOnImageAvailableListener(this, app.getBkgHandler());
 
-        summary = "";
-        summary += "init success\n";
-        update = true;
+        log.clear();
+        log.append("init success\n");
 
         processing = 0;
         events = 0;
@@ -207,23 +187,22 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         stopped = 0;
         lost=0;
 
-        getAnalysis().Init();
+        app.getChosenAnalysis().Init();
 
-        if (state == state.RUNNING) return;
+        if (state == State.RUNNING) return;
 
-        state = state.INIT;
+        state = State.INIT;
 
     }
 
     private void Run() {
-        if (state != state.INIT) return;
+        if (state != State.INIT) return;
         // ** TODO **  check calibration for delayed start
 
-        state = state.RUNNING;
-        summary += "run started\n";
-        update = true;
+        state = State.RUNNING;
+        log.append("run started\n");
 
-        long delay_millis = 1000*getCamera().delay;
+        long delay_millis = 1000*app.getAnalysisConfig().delay;
         run_start = System.currentTimeMillis() + delay_millis;
 
         Runnable r = new Runnable() {
@@ -231,17 +210,15 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 Next();
             }
         };
-        getBkgHandler().postDelayed(r, delay_millis);
+        app.getBkgHandler().postDelayed(r, delay_millis);
     }
 
     private void Stop() {
-        if (state != state.RUNNING) return;
-        state = state.STOPPED;
-        summary += "run stopping\n";
-        update = true;
-        getAnalysis().ProcessRun();
-        summary += "run finished\n";
-        update = true;
+        if (state != State.RUNNING) return;
+        state = State.STOPPED;
+        log.append("run stopping\n");
+        app.getChosenAnalysis().ProcessRun();
+        log.append("run finished\n");
 
         // ** TODO ** cancel image processing jobs ???
         // ** TODO ** call calibration class end of run job
@@ -252,10 +229,11 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 RunSummary();
             }
         };
-        getBkgHandler().postDelayed(r, 1000);
+        app.getBkgHandler().postDelayed(r, 1000);
     }
 
     private void RunSummary() {
+        String summary = "";
         summary += "run start:  " + run_start + "\n";
         summary += "run end:    " + run_end + "\n";
         long duration = run_end - run_start;
@@ -267,7 +245,8 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         summary += "failed:   " + failed + "\n";
         summary += "stopped:  " + stopped + "\n";
         summary += "lost:     " + lost + "\n";
-        update = true;
+        log.clear();
+        log.append(summary);
     }
 
     private void Next() {
@@ -276,27 +255,26 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
 
         // **TODO** The Abstract Calibration Class should tell us if another event is needed, and customise the capture request below.
 
-        if (processing < getCamera().ireader.getMaxImages()) {
+        if (processing < app.getCamera().ireader.getMaxImages()) {
             try {
-                final CaptureRequest.Builder captureBuilder = getCamera().cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
-                captureBuilder.addTarget(getCamera().ireader.getSurface());
-                captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, getCamera().getExposure());
-                captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, getCamera().getSensitivity());
-                captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, getCamera().max_frame);
+                final CaptureRequest.Builder captureBuilder = app.getCamera().cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
+                captureBuilder.addTarget(app.getCamera().ireader.getSurface());
+                captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, app.getSettings().getExposure());
+                captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, app.getSettings().getSensitivity());
+                captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, app.getCamera().max_frame);
                 captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
                 float fl = (float) 0.0;
                 captureBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, fl); // put focus at infinity
                 captureBuilder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF); // need to see if any effect
 
-                Image img = getCamera().ireader.acquireLatestImage();
+                Image img = app.getCamera().ireader.acquireLatestImage();
                 if (img != null){
-                    BkgWorker.getBkgWorker().short_toast("discarding unexpected image.\n");
+                    app.short_toast("discarding unexpected image.\n");
                     img.close();
                 }
-                if (getAnalysis().Next(captureBuilder)) {
-                    summary += "requesteding new capture\n";
-                    update = true;
-                    getCamera().csession.capture(captureBuilder.build(), doNothingCaptureListener, getBkgHandler());
+                if (app.getChosenAnalysis().Next(captureBuilder)) {
+                    log.append("requesteding new capture\n");
+                    app.getCamera().csession.capture(captureBuilder.build(), doNothingCaptureListener, app.getBkgHandler());
                 }
             } catch (CameraAccessException e) {
                 e.printStackTrace();
@@ -307,21 +285,15 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                     Next();
                 }
             };
-            getBkgHandler().postDelayed(r, 200);
+            app.getBkgHandler().postDelayed(r, 200);
         }
     }
 
-    final CameraCaptureSession.CaptureCallback doNothingCaptureListener = new CameraCaptureSession.CaptureCallback() {
+    final private CameraCaptureSession.CaptureCallback doNothingCaptureListener = new CameraCaptureSession.CaptureCallback() {
         @Override public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-            if (result != null) {
-
-                long exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-                long iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
-
-                //BkgWorker.getBkgWorker().short_toast("Capture Complete with exposure " + exp + "\n");
-                summary += "capture complete with exposure " + exp + " sensitivity " + iso + "\n";
-                update = true;
-            }
+            long exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+            long iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+            log.append("capture complete with exposure " + exp + " sensitivity " + iso + "\n");
             super.onCaptureCompleted(session, request, result);
         }
     };

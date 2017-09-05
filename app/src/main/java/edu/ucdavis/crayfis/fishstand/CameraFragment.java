@@ -1,5 +1,6 @@
 package edu.ucdavis.crayfis.fishstand;
 
+import android.content.BroadcastReceiver;
 import android.widget.Button;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -20,39 +21,33 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 public class CameraFragment extends Fragment implements View.OnClickListener {
+    App app;
 
+
+    // GUI elements:  the camera re-init button and camera initialization log.
     private Button btreinit;
     private TextView textView;
 
-    public void update(){
-        if (textView == null) return;
-        if (BkgWorker.getBkgWorker() == null) return;
-        if (BkgWorker.getBkgWorker().camera == null) return;
-        if (BkgWorker.getBkgWorker().camera.update) {
-            textView.setText(BkgWorker.getBkgWorker().camera.summary);
-        }
-    }
-
-    final Handler handler = new Handler();
-    final Runnable updater = new Runnable() {
-        @Override
-        public void run() {
-            update();
-            // Repeat this the same runnable code block again another 0.2 seconds
-            handler.postDelayed(updater, 200);
-        }
-    };
-
-
+    // The updater which handles requests to update the GUI
+    private BroadcastReceiver updater;
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,
 				       Bundle savedInstanceState) {
 	    View view = inflater.inflate(R.layout.fragment_camera, container, false);
-	    textView = (TextView) view.findViewById(R.id.text_camera);	    
-	    textView.setText("empty");
+        MainActivity m = (MainActivity) getActivity();
+        app = m.getApp();
+
+        textView = (TextView) view.findViewById(R.id.text_camera);
 	    btreinit = (Button) view.findViewById(R.id.button_camera_reinit);
 	    btreinit.setOnClickListener(this);
-        updater.run();
+
+        updater = app.getMessage().onCameraSummaryUpdate(new Runnable(){
+            public void run(){
+                textView.setText(app.getCamera().log.getTxt());
+            }
+        });
+        app.getMessage().updateCameraSummary();
+
 	    return view;
     }
     
@@ -60,7 +55,7 @@ public class CameraFragment extends Fragment implements View.OnClickListener {
         if (view == btreinit){
             Snackbar.make(view, "Re-Initializing Camera...", Snackbar.LENGTH_LONG)
     		.setAction("Action", null).show();
-            BkgWorker.getBkgWorker().camera.Init();
+            app.getCamera().Init();
         }
     }
 }

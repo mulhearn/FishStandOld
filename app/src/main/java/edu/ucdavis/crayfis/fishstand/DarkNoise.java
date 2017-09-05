@@ -17,7 +17,7 @@ import java.nio.ByteBuffer;
 import edu.ucdavis.crayfis.fishstand.Analysis;
 
 public class DarkNoise implements Analysis {
-
+    App app;
     final int total        = 500;
     final int sample_num   = 5;
     final int sample_size  =  total/sample_num;
@@ -40,8 +40,9 @@ public class DarkNoise implements Analysis {
 
     Result results[];
 
-    public static Analysis newDarkNoise(){
+    public static Analysis newDarkNoise(App app){
         DarkNoise gain = new DarkNoise();
+        gain.app = app;
         return gain;
     }
 
@@ -102,17 +103,18 @@ public class DarkNoise implements Analysis {
             for (int j = 0; j < w; j++) {
                 int index = rw * (off_h + i) + pw * (off_w + j);
                 char b = buf.getChar(index);
-                BkgWorker.getBkgWorker().daq.pixels.increment(b);
+                app.getDaq().pixels.increment(b);
                 int iflat = i*w+j;
                 double x = (double) b;
                 results[isample].sum[iflat] += x;
                 results[isample].sum_sq[iflat] += x*x;
             }
         }
-        BkgWorker.getBkgWorker().daq.summary = "";
-        BkgWorker.getBkgWorker().daq.summary += results[isample].sum[0] + ", " + results[isample].sum_sq[0] + ", " + results[isample].sum_n + "\n";
-        BkgWorker.getBkgWorker().daq.summary += results[isample].sum[1] + ", " + results[isample].sum_sq[1] + ", " + results[isample].sum_n + "\n";
-        BkgWorker.getBkgWorker().daq.update = true;
+        app.getDaq().log.clear();
+        String summary = "";
+        summary += results[isample].sum[0] + ", " + results[isample].sum_sq[0] + ", " + results[isample].sum_n + "\n";
+        summary += results[isample].sum[1] + ", " + results[isample].sum_sq[1] + ", " + results[isample].sum_n + "\n";
+        app.getDaq().log.append(summary);
         processed = processed+1;
     }
 
@@ -133,7 +135,7 @@ public class DarkNoise implements Analysis {
             writer.flush();
             writer.close();
         } catch (IOException e) {
-            BkgWorker.getBkgWorker().daq.summary += "ERROR opening txt file in DarkNoise analysis.";
+            app.getDaq().log.append("ERROR opening txt file in DarkNoise analysis.");
             e.printStackTrace();
         }
     }

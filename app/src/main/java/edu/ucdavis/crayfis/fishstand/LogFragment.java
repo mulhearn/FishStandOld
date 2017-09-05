@@ -12,28 +12,35 @@ import android.widget.TextView;
 
 public class LogFragment extends Fragment implements View.OnClickListener
 {
-    private BroadcastReceiver updater;
-    private Button btclear;
+    App app;
+    // GUI elements:  the text displaying the log, and a button to clear it:
     private TextView text;
+    private Button btclear;
+
+    // The updater which handles requests to update log in GUI
+    private BroadcastReceiver updater;
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,
 				       Bundle savedInstanceState) {
 	    View view = inflater.inflate(R.layout.fragment_log, container, false);
+        MainActivity m = (MainActivity) getActivity();
+        app = m.getApp();
+
         text = (TextView) view.findViewById(R.id.fragment_log_text);
         btclear = (Button) view.findViewById(R.id.button_clear_log);
         btclear.setOnClickListener(this);
 
-        updater = Message.onLogUpdate(new Runnable(){
+        updater = app.getMessage().onLogUpdate(new Runnable(){
             public void run(){
-                text.setText(BkgWorker.getLog());
+                text.setText(app.log.getTxt());
             }
             });
-        Message.updateLog();
+        app.getMessage().updateLog();
         return view;
     }
 
     @Override public void onDestroyView() {
-        Message.unregister(updater);
+        app.getMessage().unregister(updater);
         super.onDestroyView();
     }
 
@@ -41,7 +48,7 @@ public class LogFragment extends Fragment implements View.OnClickListener
         if (view == btclear) {
             Snackbar.make(view, "Clearing Log...", Snackbar.LENGTH_SHORT)
                     .setAction("Action", null).show();
-            BkgWorker.clearLog();
+            app.log.clear();
         }
     }
 }

@@ -34,7 +34,32 @@
                     android:layout_width="300dp"
                     android:layout_height="100dp" />
             </TableRow>
+            <TableRow
+               android:layout_width="match_parent"
+               android:layout_height="match_parent" >
+               <CheckBox
+                   android:id="@+id/checkbox_rerun"
+                   android:layout_column="2"
+                   android:text="Auto Rerun"
+                   android:onClick="onCheckboxClicked"/>
+            </TableRow>
 
+            <TableRow
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" >
+
+                <TextView
+                    android:layout_column="1"
+                    android:id="@+id/num2"
+                    android:text="Delay (s)" />
+
+                <EditText
+                    android:id="@+id/delay_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:imeOptions="actionDone"/>
+            </TableRow>
 
             <TableRow
                 android:layout_width="match_parent"
