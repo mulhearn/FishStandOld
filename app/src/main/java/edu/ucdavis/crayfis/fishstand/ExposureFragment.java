@@ -1,22 +1,18 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import android.content.BroadcastReceiver;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.support.design.widget.Snackbar;
-
-import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.os.Bundle;
+import android.content.BroadcastReceiver;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
-
 import com.jjoe64.graphview.series.LineGraphSeries;
 import com.jjoe64.graphview.GraphView;
 import com.jjoe64.graphview.series.DataPoint;
@@ -77,7 +73,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
 
         exposure_value = (EditText) view.findViewById(R.id.exposure_value);
 
-        param_updater = app.getMessage().onExposureSettingsUpdate(new Runnable() {
+        param_updater = app.getMessage().onSettingUpdate(new Runnable() {
             public void run() {
                 enable_iso = false; // this one not really needed, but looks silly during debugging
                                     // to update settings from spinner upon updating spinner from settings.
@@ -88,6 +84,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
                 app.log.append("Exposure settings:  iso index " + isens +  " exposure:  " + value + "\n");
             }
         });
+        app.getMessage().updateSetting();
 
         spinner.setOnItemSelectedListener(this);
         exposure_value.setOnEditorActionListener(loseFocusOnDone);
@@ -110,7 +107,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
                         app.getSettings().exposure = val;
                     }
                     app.log.append("User input for exposure value: " + s + "\n");
-                    app.getMessage().updateExposureSettings();
+                    app.getMessage().updateSetting();
                 }
             }
         });
@@ -126,7 +123,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
         });
         graph.addSeries(series);
 
-        graph_updater = app.getMessage().onExposureResultsUpdate(new Runnable() {
+        graph_updater = app.getMessage().onResultUpdate(new Runnable() {
             public void run() {
                 DataPoint d[] = new DataPoint[exposure.nbins];
                 for (int i = 0; i < exposure.nbins; i++) {
@@ -150,7 +147,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
     @Override public void onResume (){
         //Log.app.append("view resumed.\n");
         super.onResume();
-        app.getMessage().updateExposureSettings();
+        app.getMessage().updateSetting();
     }
 
     @Override public void onPause (){

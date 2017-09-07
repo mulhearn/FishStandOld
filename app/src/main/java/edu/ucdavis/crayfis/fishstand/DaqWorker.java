@@ -4,7 +4,6 @@ import java.lang.System;
 
 import android.graphics.Bitmap;
 import android.hardware.camera2.CaptureResult;
-import android.os.Handler;
 import android.view.Surface;
 import android.media.Image;
 import android.media.ImageReader;
@@ -17,12 +16,14 @@ import android.hardware.camera2.CameraCaptureSession;
 public class DaqWorker implements ImageReader.OnImageAvailableListener {
     final private App app;
     final public Log log;
+    boolean rerun;
 
     public DaqWorker(App appp){
         this.app = appp;
         state = State.STOPPED;
         processing = 0;
-        log = new Log(new Runnable() {public void run(){app.getMessage().updateDaqSummary();}});
+        rerun = false;
+        log = new Log(new Runnable() {public void run(){app.getMessage().updateLog();}});
         log.clear();
     }
 
@@ -139,7 +140,6 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
 
     }
 
-
     //event loop variables:
     private int processing;
 
@@ -153,6 +153,11 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
     }
 
     public void RunPressed() {
+        // rerun mode is only active when auto-rerun is specified and first run is manually started.
+        if(app.getSettings().auto_rerun){
+            log.append("auto rerun mode is active.\n");
+            rerun = true;
+        }
         Runnable r = new Runnable() {
             public void run() {
                 Run();
@@ -161,8 +166,8 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         app.getBkgHandler().post(r);
     }
 
-
     public void StopPressed() {
+        rerun = false; // pressing stop manually ends the current loop of re-running.
         Runnable r = new Runnable() {
             public void run() {
                 Stop();
@@ -189,10 +194,15 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
 
         app.getChosenAnalysis().Init();
 
-        if (state == State.RUNNING) return;
-
         state = State.INIT;
 
+        // turning off setting for auto-rerun will stop the rerun loop.
+        if (app.getSettings().auto_rerun == false) rerun = false;
+        // if we are in a rerun loop, automatically call Run().
+        if (rerun){
+            log.append("automatically starting another run.\n");
+            Run();
+        }
     }
 
     private void Run() {
@@ -202,7 +212,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         state = State.RUNNING;
         log.append("run started\n");
 
-        long delay_millis = 1000*app.getAnalysisConfig().delay;
+        long delay_millis = 1000*app.getSettings().delay;
         run_start = System.currentTimeMillis() + delay_millis;
 
         Runnable r = new Runnable() {
@@ -229,7 +239,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 RunSummary();
             }
         };
-        app.getBkgHandler().postDelayed(r, 1000);
+        app.getBkgHandler().postDelayed(r, 2000);
     }
 
     private void RunSummary() {
@@ -247,6 +257,19 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         summary += "lost:     " + lost + "\n";
         log.clear();
         log.append(summary);
+
+        // turning off setting for auto-rerun will stop the rerun loop.
+        if (app.getSettings().auto_rerun == false) rerun = false;
+        // if we are in a rerun loop, automatically call Init().
+        if (rerun){
+            log.append("automatically initiallizing another run.\n");
+            Runnable r = new Runnable() {
+                public void run() {
+                    Init();
+                }
+            };
+            app.getBkgHandler().postDelayed(r, 2000);
+        }
     }
 
     private void Next() {
@@ -273,7 +296,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                     img.close();
                 }
                 if (app.getChosenAnalysis().Next(captureBuilder)) {
-                    log.append("requesteding new capture\n");
+                    log.append("requesting new image capture\n");
                     app.getCamera().csession.capture(captureBuilder.build(), doNothingCaptureListener, app.getBkgHandler());
                 }
             } catch (CameraAccessException e) {

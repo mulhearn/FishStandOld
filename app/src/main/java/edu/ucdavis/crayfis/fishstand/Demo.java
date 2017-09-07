@@ -1,23 +1,16 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import android.graphics.Bitmap;
-import android.graphics.Color;
-import android.hardware.camera2.CaptureRequest;
-import android.media.Image;
-import android.os.Environment;
-
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-
-import edu.ucdavis.crayfis.fishstand.Analysis;
+import android.hardware.camera2.CaptureRequest;
+import android.media.Image;
+import android.os.Environment;
+import android.text.InputType;
 
 public class Demo implements Analysis {
-    App app;
+    final App app;
 
     final int total        = 100;
     int requested;
@@ -28,13 +21,13 @@ public class Demo implements Analysis {
     final int cell_size = 100;
 
 
-    public static Analysis newDemo(App app){
-        Demo gain = new Demo();
-        gain.app = app;
-        return gain;
+    public static Analysis newDemo(final App app){
+        Demo x = new Demo(app);
+        return x;
     }
 
-    private Demo() {
+    private Demo(final App app) {
+        this.app = app;
     }
 
     public void Init(){
@@ -111,4 +104,9 @@ public class Demo implements Analysis {
             e.printStackTrace();
         }
     }
+
+    public String getName(int iparam){return "";}
+    public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT
+    public String getParam(int iparam){ return ""; }
+    public void   setParam(int iparam, String value) {}
 }

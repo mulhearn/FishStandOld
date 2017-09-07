@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.os.Environment;
+import android.text.InputType;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -13,33 +14,20 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import edu.ucdavis.crayfis.fishstand.Analysis;
-
-// old algorithm...
-// long isum = 0;
-// for (int row = 0; row < 3000; row++) {
-//  for (int col = 0; col < 5328; col++) {
-//   char x = buf.getChar();
-//   int ix = (int) x;
-//   if (ix > maxpix) maxpix = ix;
-//   if (ix < minpix) minpix = ix;
-//   isum += ix;
-//  }
-// }
-
-
 public class Photo implements Analysis {
-    App app;
+    final App app;
+    int num = 1;
+    String tag = "";
     int requested;
     int processed;
 
     public static Analysis newPhoto(App app){
-        Photo photo = new Photo();
-        photo.app = app;
+        Photo photo = new Photo(app);
         return photo;
     }
 
-    private Photo() {
+    private Photo(App app) {
+        this.app = app;
         requested=0;
         processed=0;
     }
@@ -184,5 +172,35 @@ public class Photo implements Analysis {
 
     public void ProcessRun(){
 
+    }
+
+    public String getName(int iparam) {
+        if (iparam == 0) return "num";
+        if (iparam == 1) return "tag";
+
+        else return "";
+    }
+    public int    getType(int iparam){
+        if (iparam == 1) return InputType.TYPE_CLASS_TEXT;
+        return InputType.TYPE_CLASS_NUMBER;
+    }
+    public String getParam(int iparam){
+        if (iparam == 0) return "" + num;
+        if (iparam == 1) return "" + tag;
+        else return "";
+    }
+    public void   setParam(int iparam, String value) {
+        if (iparam == 0) {
+            if (value.length() > 8) {
+                num = 99999999;
+            } else {
+                num = Integer.parseInt(value);
+                if (num<0) num=0;
+                if (num > 99999999) num = 99999999;
+            }
+        }
+        if (iparam == 1) {
+            tag = value;
+        }
     }
 }

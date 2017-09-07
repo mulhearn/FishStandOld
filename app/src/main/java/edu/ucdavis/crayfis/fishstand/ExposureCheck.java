@@ -1,7 +1,6 @@
 package edu.ucdavis.crayfis.fishstand;
 
 import java.nio.ByteBuffer;
-
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CameraDevice;
@@ -10,12 +9,11 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.media.Image;
 import android.media.ImageReader;
 
-import static android.content.ContentValues.TAG;
-import edu.ucdavis.crayfis.fishstand.App;
-
 public class ExposureCheck {
-    App app;
-    public ExposureCheck(App app){this.app = app;}
+    final App app;
+    public ExposureCheck(final App app){
+        this.app = app;
+    }
 
     public final int max_dn = 1024; // find in config?
     public final int nbins = 50;
@@ -51,7 +49,7 @@ public class ExposureCheck {
                 hist[ibin]++;
             }
             img.close();
-            app.getMessage().updateExposureResults();
+            app.getMessage().updateResult();
         }
     };
 

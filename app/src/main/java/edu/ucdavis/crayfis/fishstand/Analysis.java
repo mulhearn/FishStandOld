@@ -15,4 +15,12 @@ public interface Analysis {
     public Boolean Done();
     public void ProcessImage(Image img);
     public void ProcessRun();
+
+    // Parameter interface:
+    public String getName(int iparam);
+    public int    getType(int iparam);
+    public String getParam(int iparam);
+    public void   setParam(int iparam, String value);
+
 }
+

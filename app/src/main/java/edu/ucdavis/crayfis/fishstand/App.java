@@ -9,12 +9,12 @@ import java.text.DateFormat;
 import java.util.Date;
 
 public class App implements Runnable {
-    public Log log;
-    private Message message;
-    private CameraConfig camera;
-    private DaqWorker daq;
-    private UserSettings settings;
-    private AnalysisConfig analysis;
+    final public Log log;
+    final private Message message;
+    final private CameraConfig camera;
+    final private DaqWorker daq;
+    final private UserSettings settings;
+    final private AnalysisConfig analysis;
     // Save the context and UI thread handler, for interactions with UI.
     final private Context context;
     final private Handler uihandler;

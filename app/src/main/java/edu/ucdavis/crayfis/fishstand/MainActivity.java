@@ -2,12 +2,8 @@ package edu.ucdavis.crayfis.fishstand;
 
 import android.Manifest;
 import android.os.Handler;
-import android.widget.Button;
-import android.support.design.widget.Snackbar;
-
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.app.Fragment;
@@ -15,18 +11,11 @@ import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentPagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.os.Bundle;
-import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.View;
-import android.view.ViewGroup;
 import android.content.pm.PackageManager;
-
-import android.widget.TextView;
 import android.widget.Toast;
 import android.content.Context;
-
-import edu.ucdavis.crayfis.fishstand.App;
 
 public class MainActivity extends AppCompatActivity { 
 

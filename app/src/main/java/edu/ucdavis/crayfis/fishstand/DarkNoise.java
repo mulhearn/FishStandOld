@@ -1,23 +1,16 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import android.graphics.Bitmap;
-import android.graphics.Color;
-import android.hardware.camera2.CaptureRequest;
-import android.media.Image;
-import android.os.Environment;
-
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-
-import edu.ucdavis.crayfis.fishstand.Analysis;
+import android.hardware.camera2.CaptureRequest;
+import android.os.Environment;
+import android.media.Image;
+import android.text.InputType;
 
 public class DarkNoise implements Analysis {
-    App app;
+    final App app;
     final int total        = 500;
     final int sample_num   = 5;
     final int sample_size  =  total/sample_num;
@@ -40,13 +33,13 @@ public class DarkNoise implements Analysis {
 
     Result results[];
 
-    public static Analysis newDarkNoise(App app){
-        DarkNoise gain = new DarkNoise();
-        gain.app = app;
-        return gain;
+    public static Analysis newDarkNoise(final App app){
+        DarkNoise x = new DarkNoise(app);
+        return x;
     }
 
-    private DarkNoise() {
+    private DarkNoise(final App app) {
+        this.app = app;
         results = new Result[sample_num];
         for (int i=0; i<sample_num; i++) {
             results[i] = new Result();
@@ -139,4 +132,9 @@ public class DarkNoise implements Analysis {
             e.printStackTrace();
         }
     }
+
+    public String getName(int iparam){return "";}
+    public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT
+    public String getParam(int iparam){ return ""; }
+    public void   setParam(int iparam, String value) {}
 }

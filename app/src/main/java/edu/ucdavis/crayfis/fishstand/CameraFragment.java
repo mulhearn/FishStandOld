@@ -3,26 +3,15 @@ package edu.ucdavis.crayfis.fishstand;
 import android.content.BroadcastReceiver;
 import android.widget.Button;
 import android.support.design.widget.Snackbar;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
-
-import android.os.Handler;
 import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentPagerAdapter;
-import android.support.v4.view.ViewPager;
 import android.os.Bundle;
 import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-
 import android.widget.TextView;
 
 public class CameraFragment extends Fragment implements View.OnClickListener {
     App app;
-
 
     // GUI elements:  the camera re-init button and camera initialization log.
     private Button btreinit;
@@ -41,12 +30,12 @@ public class CameraFragment extends Fragment implements View.OnClickListener {
 	    btreinit = (Button) view.findViewById(R.id.button_camera_reinit);
 	    btreinit.setOnClickListener(this);
 
-        updater = app.getMessage().onCameraSummaryUpdate(new Runnable(){
+        updater = app.getMessage().onLogUpdate(new Runnable(){
             public void run(){
                 textView.setText(app.getCamera().log.getTxt());
             }
         });
-        app.getMessage().updateCameraSummary();
+        app.getMessage().updateLog();
 
 	    return view;
     }

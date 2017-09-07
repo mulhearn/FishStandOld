@@ -1,24 +1,18 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import android.graphics.Bitmap;
-import android.graphics.Color;
-import android.hardware.camera2.CaptureRequest;
-import android.media.Image;
-import android.os.Environment;
-
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Random;
+import android.hardware.camera2.CaptureRequest;
+import android.media.Image;
+import android.os.Environment;
+import android.text.InputType;
 
-import edu.ucdavis.crayfis.fishstand.Analysis;
 
 public class HotCells implements Analysis {
-    App app;
+    final App app;
 
     // algorithm parameters:
     final int pixel_thresh   = 100;
@@ -39,7 +33,7 @@ public class HotCells implements Analysis {
 
     CharHist maxhist; // max pixel in each cell
     CharHist avghist; // avg of all pixels in cell
-    Random rnd;
+    final Random rnd;
     CharHist rndhist; // a randomly chosen pixel from each cell
     CharHist clnhist; // max clean pixel in each cell
     CharHist nbrhist; // highest neigbor
@@ -50,12 +44,12 @@ public class HotCells implements Analysis {
     File trigfile;
 
     public static Analysis newHotCells(App app){
-        HotCells x = new HotCells();
-        x.app = app;
+        HotCells x = new HotCells(app);
         return x;
     }
 
-    private HotCells() {
+    private HotCells(final App app) {
+        this.app = app;
         rnd = new Random();
     }
 
@@ -249,4 +243,8 @@ public class HotCells implements Analysis {
         if (clnhist != null) clnhist.writeToFile("hotcells_hcln_" + postfix);
         if (nbrhist != null) nbrhist.writeToFile("hotcells_hnbr_" + postfix);
     }
+    public String getName(int iparam){return "";}
+    public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT
+    public String getParam(int iparam){ return ""; }
+    public void   setParam(int iparam, String value) {}
 }

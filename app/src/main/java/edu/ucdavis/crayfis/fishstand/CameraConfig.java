@@ -48,7 +48,7 @@ public class CameraConfig {
 
     public CameraConfig(final App app){
         this.app = app;
-        log = new Log(new Runnable() {public void run(){app.getMessage().updateCameraSummary();}});
+        log = new Log(new Runnable() {public void run(){app.getMessage().updateLog();}});
     }
 
     public void Init() {
@@ -172,7 +172,7 @@ public class CameraConfig {
                 app.getSettings().exposure = max_exp;
                 app.getSettings().isens = 0;
                 app.log.append("Camera settings initialized.\n");
-                app.getMessage().updateExposureSettings();
+                app.getMessage().updateSetting();
                 cmanager.openCamera(cid, deviceCallback, app.getBkgHandler());
             } else {
                 log.append("Could not find camera device with sufficient capabilities.  Cannot init.");

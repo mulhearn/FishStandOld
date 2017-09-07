@@ -1,8 +1,5 @@
 package edu.ucdavis.crayfis.fishstand;
 
-import android.os.Handler;
-import android.widget.Toast;
-
 public class Log {
     private String logtxt = "";
     final private Runnable update;
