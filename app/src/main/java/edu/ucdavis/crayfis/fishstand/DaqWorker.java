@@ -207,7 +207,6 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
 
     private void Run() {
         if (state != State.INIT) return;
-        // ** TODO **  check calibration for delayed start
 
         state = State.RUNNING;
         log.append("run started\n");
@@ -231,7 +230,6 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         log.append("run finished\n");
 
         // ** TODO ** cancel image processing jobs ???
-        // ** TODO ** call calibration class end of run job
 
         run_end = System.currentTimeMillis();
         Runnable r = new Runnable() {
@@ -276,8 +274,6 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         // Next only applies during the RUNNING state:
         if (state != State.RUNNING) return;
 
-        // **TODO** The Abstract Calibration Class should tell us if another event is needed, and customise the capture request below.
-
         if (processing < app.getCamera().ireader.getMaxImages()) {
             try {
                 final CaptureRequest.Builder captureBuilder = app.getCamera().cdevice.createCaptureRequest(CameraDevice.TEMPLATE_MANUAL);
@@ -296,7 +292,7 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                     img.close();
                 }
                 if (app.getChosenAnalysis().Next(captureBuilder)) {
-                    log.append("requesting new image capture\n");
+                    log.append("requesting new image capture with iso " + app.getSettings().getSensitivity() + "\n");
                     app.getCamera().csession.capture(captureBuilder.build(), doNothingCaptureListener, app.getBkgHandler());
                 }
             } catch (CameraAccessException e) {

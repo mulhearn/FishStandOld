@@ -1,10 +1,14 @@
 package edu.ucdavis.crayfis.fishstand;
 
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Random;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.os.Environment;
@@ -13,235 +17,227 @@ import android.text.InputType;
 
 public class HotCells implements Analysis {
     final App app;
+    // camera properties:
+    Geometry geom;
+    int pixel_num;
 
     // algorithm parameters:
-    final int pixel_thresh   = 100;
-    final int nbr_thresh     = 200;
-    final int total          = 20000;
-    final int margin = 300;
-    final int cell_size = 100;
-    final int zero_bias_prescale = 10000; // keep 1 cell per N
-    final int hot_thresh = 2;
+    final int images = 1000;
+    int step = 10;
+    int pixel_pick = 10; // number of pixels to pick randomly from each category
+
+    // list of chosen pixels to record pixel values:
+    int chosen_pixels[];
+
+    int sum[];
+    int sumsq[];
+    float mean[];
+    float var[];
+    short pixel_data[];
 
     // counts:
     int requested;
     int processed;
-    long cells;
 
-    GridGeometry grid;
-    HotCellVeto  hotveto;
+    File outfile;
 
-    CharHist maxhist; // max pixel in each cell
-    CharHist avghist; // avg of all pixels in cell
-    final Random rnd;
-    CharHist rndhist; // a randomly chosen pixel from each cell
-    CharHist clnhist; // max clean pixel in each cell
-    CharHist nbrhist; // highest neigbor
-
-
-    CharHist occhist; // occupancy of pixels above hot pixel threshold
-
-    File trigfile;
-
-    public static Analysis newHotCells(App app){
+    public static Analysis newHotCells(App app) {
         HotCells x = new HotCells(app);
         return x;
     }
 
-    private HotCells(final App app) {
-        this.app = app;
-        rnd = new Random();
+    private void clear_histograms() {
+        for (int i = 0; i < pixel_num; i++) {
+            sum[i] = 0;
+            sumsq[i] = 0;
+        }
     }
 
-    public void Init(){
+    private HotCells(final App app) {
+        this.app = app;
+        int nx = app.getCamera().raw_size.getWidth();
+        int ny = app.getCamera().raw_size.getHeight();
+        pixel_num = nx * ny;
+        if (step > 1) {
+            int nxr = nx / step + 1;  // need a one here because < becomes <= for some cases in for loops
+            int nyr = ny / step + 1;
+            pixel_num = nxr * nyr;
+        }
+        geom = new Geometry(nx, ny);
+    }
+
+    public void Init() {
         // TODO:  provide a proto-image to Init from DaqWorker.
-    	requested=0;
-	    processed=0;
-        cells=0;
-        maxhist = new CharHist((char) 1024, (char) 3);
-        avghist = new CharHist((char) 1024, (char) 3);
-        clnhist = new CharHist((char) 1024, (char) 3);
-        nbrhist = new CharHist((char) 1024, (char) 3);
-        occhist = new CharHist((char) 100, (char) 0);
+        requested = 0;
+        processed = 0;
+        app.log.append("Geometry self test output:  ");
+        app.log.append(Geometry.SelfTest());
 
         File path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
                 "FishStand");
         path.mkdirs();
-        String filename = "triggered_" + System.currentTimeMillis() + ".dat";
-        trigfile = new File(path, filename);
-
-        synchronized(this) {
-            try {
-                FileOutputStream writer = new FileOutputStream(trigfile);
-                byte header[] = {(byte) 0xCF, (byte) 0xFF, (byte) 0x55, (byte) 0x77, (byte) 0x57, (byte) 0x75};
-                writer.write(header);
-                int val = -4403;
-                writer.write(val&0xff);
-                writer.write((val>>8)&0xff);
-                writer.flush();
-                writer.close();
-            } catch (IOException e) {
-                app.getDaq().log.append("ERROR opening txt file in CharHist.");
-                e.printStackTrace();
+        String filename = "hotcells_" + System.currentTimeMillis() + ".dat";
+        outfile = new File(path, filename);
+        if (sum == null) {
+            sum = new int[pixel_num];
+        }
+        if (sumsq == null) {
+            sumsq = new int[pixel_num];
+        }
+        if (mean == null) {
+            mean = new float[pixel_num];
+            for (int i = 0; i < pixel_num; i++) {
+                mean[i] = 0;
             }
         }
-        // Validate the GridGeometry class:
-        //BkgWorker.getBkgWorker().daq.summary += GridGeometry.selfTest();
-        //BkgWorker.getBkgWorker().daq.update = true;
+        if (var == null) {
+            var = new float[pixel_num];
+            for (int i = 0; i < pixel_num; i++) {
+                var[i] = 0;
+            }
+        }
+        clear_histograms();
 
+        // find lit and variant pixels
+        List<Integer> lit_pixels = new ArrayList<Integer>();
+        List<Integer> var_pixels = new ArrayList<Integer>();
+        List<Integer> nrm_pixels = new ArrayList<Integer>();
+        List<Integer> chosen     = new ArrayList<Integer>();
+
+        for (int i = 0; i < pixel_num; i++) {
+            if (var[i] > 50 + 6 * mean[i]) {
+                var_pixels.add(i);
+            } else if (mean[i] > 10) {
+                lit_pixels.add(i);
+            } else if ((mean[i] < 5) && (var[i]<20)){
+                nrm_pixels.add(i);
+            }
+        }
+        app.getDaq().log.append("lit pixels     " + lit_pixels.size() + "\n");
+        app.getDaq().log.append("variant pixels " + var_pixels.size() + "\n");
+        app.getDaq().log.append("normal pixels  " + nrm_pixels.size() + "\n");
+
+        // put in random order, so first N will be randomly chosen:
+        Collections.shuffle(lit_pixels);
+        Collections.shuffle(var_pixels);
+        Collections.shuffle(nrm_pixels);
+        for (int i = 0; i < pixel_pick; i++) {
+            if (i<nrm_pixels.size())
+                chosen.add(nrm_pixels.get(i));
+            if (i<lit_pixels.size())
+                chosen.add(lit_pixels.get(i));
+            if (i<var_pixels.size())
+                chosen.add(var_pixels.get(i));
+        }
+        app.getDaq().log.append("chosen pixels  " + chosen.size() + "\n");
+
+        Collections.sort(chosen);
+        chosen_pixels = new int[chosen.size()];
+        int i = 0;
+        for (Integer x: chosen) {
+            chosen_pixels[i] = x;
+            i++;
+        }
+        pixel_data = new short[chosen_pixels.length*images];
     }
 
     public Boolean Next(CaptureRequest.Builder request){
-        if (requested < total){
-	    // CaptureRequest has been set as configured for ISO, eposure, etc already,
-	    // but can be overriden here if, e.g, you want to scan exposure times.
+        if (requested < images){
+            requested++;
             return true;
         } else {
             return false;
         }
     }
     public Boolean Done() {
-        if (processed >= total) { return true; }
+        if (processed >= images) { return true; }
         else { return false; }	
     }
-
     public void ProcessImage(Image img) {
         Image.Plane iplane = img.getPlanes()[0];
         ByteBuffer buf = iplane.getBuffer();
 
-        if (grid == null) {
-            grid = new GridGeometry(img.getWidth(), img.getHeight(), margin, cell_size);
-        }
-        if (hotveto == null){
-            int events = 100;
-            if (total < 200) events = total / 2;
-            hotveto = new HotCellVeto(events, hot_thresh, img.getHeight()*img.getWidth());
-        }
-
-        boolean calibrated = hotveto.isCalibrated();
-
-        int ncell = grid.getNumCells();
-
         int nx = img.getWidth();
+        int ny = img.getHeight();
         int ps = iplane.getPixelStride();
-        for (int icell = 0; icell < ncell; icell++) {
-            boolean prescale = false;
-            if ((cells % zero_bias_prescale) == 0) prescale = true;
+        Geometry geom = new Geometry(nx, ny);
 
-            int start = grid.getRawCellStart(icell);
-            short max = 0;
-            short cmax = 0;
-            int cmax_x = 0;
-            int cmax_y = 0;
+        if (sum==null){
+            app.log.append("null histogram encountered... app must have been recreated!");
+            return;
+        }
 
-            int sum = 0;
-            for (int x = 0; x < cell_size; x++) {
-                for (int y = 0; y < cell_size; y++) {
-                    int index = start + y * nx + x;
-                    short b = buf.getShort(ps * index);
-                    sum = sum + (int) b;
-                    if (b > pixel_thresh) {
-                        hotveto.addPixel(index);
-                        if (b > max) max = b;
-                        if (calibrated && (b > cmax) && (!hotveto.isHot(index))) {
-                            cmax = b;
-                            cmax_x = x;
-                            cmax_y = y;
-                        }
+        int short_index = 0;
+        int buf_index = 0;
+        short[] pixel_buf = new short[chosen_pixels.length];
+        for (int x = 0; x < nx; x+=step) {
+            for (int y = 0; y < ny; y+=step) {
+                if (short_index >= pixel_num){
+                    app.log.append("ERROR:  short_index " + short_index + " is too large\n");
+                    continue;
+                }
+                int full_index = y * nx + x;
+                short b = buf.getShort(ps * full_index);
+                sum[short_index] += b;
+                sumsq[short_index] += b*b;
+                if (buf_index < chosen_pixels.length) {
+                    if (short_index == chosen_pixels[buf_index]) {
+                        pixel_buf[buf_index] = b;
+                        buf_index++;
                     }
                 }
-                cells++;
-            }
-            int avg = (int) ((double) sum) / (cell_size * cell_size);
-            if (maxhist != null) maxhist.increment(max);
-            if ((calibrated) && (clnhist != null)) clnhist.increment(cmax);
-            if (avghist != null) avghist.increment((short) avg);
-            short nmax = 0;
-            int nind = 0;
-            if (cmax > pixel_thresh) {
-                int[] ns = grid.neighbors(icell, cmax_x, cmax_y);
-                for (int i = 0; i < ns.length; i++) {
-                    int index = ns[i];
-                    if (index < 0) continue;
-                    if (hotveto.isHot(index)) continue;
-                    short b = buf.getShort(ps * index);
-                    if (b > nmax) {
-                        nmax = b;
-                        nind = index;
-                    }
-                }
-                if ((calibrated) && (nbrhist != null)) nbrhist.increment(nmax);
-            }
-            if (calibrated && (prescale || (nmax > nbr_thresh))){
-                synchronized(this){
-                    try {
-                        FileOutputStream writer = new FileOutputStream(trigfile, true);
-                        writer.write((int) 0xcf);
-                        writer.write((int) 0xee);
-                        writer.write((int) icell&0xff);
-                        writer.write((int) (icell>>8)&0xff);
-
-                        if (prescale) writer.write((int) 0);
-                        else          writer.write((int) 1);
-                        writer.write((int) 0);
-                        writer.write((int) cell_size);
-                        writer.write((int) 0);
-                        writer.write((int) cmax_x);
-                        writer.write((int) 0);
-                        writer.write((int) cmax_y);
-                        writer.write((int) 0);
-                        byte mlower = (byte) (nmax&0xff);
-                        byte mupper = (byte) ((nmax>>8)&0xff);
-                        writer.write(mlower);
-                        writer.write(mupper);
-                        writer.write(nind&0xff);
-                        writer.write((nind>>8)&0xff);
-                        writer.write((nind>>16)&0xff);
-                        writer.write((nind>>24)&0xff);
-                        for (int x = 0; x < cell_size; x++) {
-                            for (int y = 0; y < cell_size; y++) {
-                                int index = start + y * nx + x;
-                                int b = (int) buf.getShort(ps * index);
-                                if (hotveto.isHot(index)){ b = -b; }
-                                byte lower = (byte) (b&0xff);
-                                byte upper = (byte) ((b>>8)&0xff);
-                                writer.write(lower);
-                                writer.write(upper);
-                            }
-                        }
-                        writer.flush();
-                        writer.close();
-                    } catch (IOException e) {
-                        app.getDaq().log.append("ERROR opening txt file in CharHist.");
-                        e.printStackTrace();
-                    }
-                }
+                short_index++;
             }
         }
-        hotveto.addEvent();
-        processed = processed + 1;
+        synchronized(this) {
+            for (int i=0; i<chosen_pixels.length; i++) {
+                pixel_data[processed*chosen_pixels.length + i] = pixel_buf[i];
+            }
+            processed++;
+        }
     }
 
-    public void ProcessRun(){
-
-        if (hotveto != null) {
-            int hot[] = hotveto.hotCount();
-            if (hot != null) {
-                if (occhist != null) {
-                    for (int i = 0; i < hot.length; i++) {
-                        occhist.increment((short) hot[i]);
-                    }
-                }
+    public void ProcessRun() {
+        int iso = app.getSettings().getSensitivity();
+        try {
+            FileOutputStream outstream = new FileOutputStream(outfile);
+            DataOutputStream writer = new DataOutputStream(outstream);
+            writer.writeInt(iso);
+            writer.writeInt((int) app.getSettings().getExposure());
+            writer.writeInt(images);
+            writer.writeInt(geom.num_x);
+            writer.writeInt(geom.num_y);
+            writer.writeInt(step);
+            writer.writeInt(pixel_num);
+            writer.writeInt(chosen_pixels.length);
+            for (int x: chosen_pixels){
+                writer.writeInt(x);
             }
+            for (short x:  pixel_data){
+                writer.writeShort(x);
+            }
+            for (int i = 0; i < pixel_num; i++) {
+                writer.writeInt(sum[i]);
+            }
+            for (int i = 0; i < pixel_num; i++) {
+                writer.writeInt(sumsq[i]);
+            }
+            for (int i = 0; i < pixel_num; i++) {
+                writer.writeFloat(mean[i]);
+            }
+            for (int i = 0; i < pixel_num; i++) {
+                writer.writeFloat(var[i]);
+            }
+        } catch (IOException e) {
+            app.getDaq().log.append("ERROR opening output file.\n");
+            e.printStackTrace();
+        }
+        // calculate mean and variance for use in next run:
+        for (int i = 0; i < pixel_num; i++) {
+            mean[i] = ((float) sum[i]) / images;
+            var[i] = ((float) sumsq[i]) / images - mean[i] * mean[i];
         }
 
-        String postfix = "" + System.currentTimeMillis() + ".txt";
-
-        if (maxhist != null) maxhist.writeToFile("hotcells_hmax_" + postfix);
-        if (avghist != null) avghist.writeToFile("hotcells_havg_" + postfix);
-        if (occhist != null) occhist.writeToFile("hotcells_hocc_" + postfix);
-        if (clnhist != null) clnhist.writeToFile("hotcells_hcln_" + postfix);
-        if (nbrhist != null) nbrhist.writeToFile("hotcells_hnbr_" + postfix);
     }
     public String getName(int iparam){return "";}
     public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT

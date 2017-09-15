@@ -33,17 +33,18 @@ public class ConfigFragment extends Fragment implements AdapterView.OnItemSelect
 
     @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,
 				       Bundle savedInstanceState) {
-	    View view = inflater.inflate(R.layout.fragment_config, container, false);
+        View view = inflater.inflate(R.layout.fragment_config, container, false);
         LoseFocusOnDone loseFocusOnDone = new LoseFocusOnDone(view);
         MainActivity m = (MainActivity) getActivity();
         app = m.getApp();
+        app.log.append("view created.\n");
 
         spinner = (Spinner) view.findViewById(R.id.spinner_mode);
+        enable_spinner = false;
 
         ArrayAdapter adapter = new ArrayAdapter(getContext(),
                 android.R.layout.simple_spinner_item, app.getAnalysisConfig().Analyses);
         spinner.setAdapter(adapter);
-        spinner.setOnItemSelectedListener(this);
 
         param = new TextView[]
         {
@@ -60,6 +61,8 @@ public class ConfigFragment extends Fragment implements AdapterView.OnItemSelect
 
         param_updater = app.getMessage().onSettingUpdate(new Runnable() {
             public void run() {
+                spinner.setSelection(app.getAnalysisConfig().getPosition(),false);
+
                 for (int i=0;i<param.length;i++){
                     param[i].setText(app.getChosenAnalysis().getName(i));
                 }
@@ -69,27 +72,24 @@ public class ConfigFragment extends Fragment implements AdapterView.OnItemSelect
                 }
             }
         });
-        app.getMessage().updateSetting();
-
         spinner.setOnItemSelectedListener(this);
-
         for (int i=0; i< uparam.length; i++) {
             uparam[i].setOnEditorActionListener(loseFocusOnDone);
             uparam[i].setOnFocusChangeListener(this);
         }
 
-	    return view;
+        app.getMessage().updateSetting();
+        return view;
     }
 
     @Override public void onResume (){
-        //Log.app.append("view resumed.\n");
-        super.onResume();
+        app.log.append("view resumed.\n");
         app.getMessage().updateSetting();
+        super.onResume();
     }
 
     @Override public void onPause (){
-        //Log.app.append("view paused.\n");
-        enable_spinner = false;
+        app.log.append("view paused.\n");
         super.onPause();
     }
 
@@ -101,18 +101,19 @@ public class ConfigFragment extends Fragment implements AdapterView.OnItemSelect
                     String s = uparam[i].getText().toString();
                     app.log.append("User input: " + s + "\n");
                     app.getChosenAnalysis().setParam(i,s);
+                    app.getMessage().updateSetting();
                 }
             }
-            app.getMessage().updateSetting();
         }
     }
 
     public void onItemSelected(AdapterView<?> parent, View view,
                                int pos, long id) {
         if (enable_spinner) {
+            app.log.append("Analysis spinner onItemSelected called at position " + pos + "\n");
             app.getAnalysisConfig().select(pos);
-            app.getMessage().updateSetting();
         } else {
+            app.log.append("Ignoring first call to onItemSelected for analysis spinner at " + pos + ".\n");
             enable_spinner=true;
         }
     }

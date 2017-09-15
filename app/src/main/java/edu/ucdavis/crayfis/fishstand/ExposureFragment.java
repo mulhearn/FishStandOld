@@ -25,6 +25,8 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
     // GUI elements:  the ISO spinner, the exposure edit text, check exposure button,
     //   and exposure graph.
     private Spinner spinner;
+    Boolean enable_spinner=false;
+
     private EditText exposure_value;
     private Button btexp;
     private GraphView graph;
@@ -42,12 +44,10 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
     // would mess this up when the settings are updated elsewhere.  This boolean
     // allows us to ignore the first call to onItemSelected.
 
-    Boolean enable_iso=false;
-
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        enable_iso = false; // avoid initial automatic onItemSelected call blowing away correct value.
+        enable_spinner = false; // avoid initial automatic onItemSelected call blowing away correct value.
         View view = inflater.inflate(R.layout.fragment_exposure, container, false);
         LoseFocusOnDone loseFocusOnDone = new LoseFocusOnDone(view);
         MainActivity m = (MainActivity) getActivity();
@@ -75,8 +75,6 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
 
         param_updater = app.getMessage().onSettingUpdate(new Runnable() {
             public void run() {
-                enable_iso = false; // this one not really needed, but looks silly during debugging
-                                    // to update settings from spinner upon updating spinner from settings.
                 int isens = app.getSettings().isens;
                 spinner.setSelection(isens);
                 String value = "" + (int) app.getSettings().exposure / scale_factor;
@@ -152,19 +150,19 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
 
     @Override public void onPause (){
         //Log.app.append("view paused.\n");
-        enable_iso = false;
+        enable_spinner = false;
         super.onPause();
     }
 
     @Override public void onItemSelected(AdapterView<?> parent, View view,
                                int pos, long id) {
         int isens = app.getSettings().isens;
-        if (enable_iso) {
+        if (enable_spinner) {
             app.log.append("New ISO spinner value selected:  " + pos + " old setting:  " + isens + "\n");
             app.getSettings().isens = pos;
         } else {
-            //Log.app.append("Ignoring call to onItemSelected\n");
-            enable_iso = true;
+            app.log.append("Ignoring first call to onItemSelected for ISO spinner\n");
+            enable_spinner = true;
         }
     }
     @Override public void onNothingSelected(AdapterView<?> parent){};
