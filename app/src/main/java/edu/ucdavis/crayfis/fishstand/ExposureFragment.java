@@ -19,14 +19,12 @@ import com.jjoe64.graphview.series.DataPoint;
 
 import java.util.ArrayList;
 
-public class ExposureFragment extends Fragment implements AdapterView.OnItemSelectedListener, View.OnClickListener {
+public class ExposureFragment extends Fragment implements View.OnClickListener {
     private App app;
     private ExposureCheck exposure;
-    // GUI elements:  the ISO spinner, the exposure edit text, check exposure button,
+    // GUI elements:  the ISO edit text, the exposure edit text, check exposure button,
     //   and exposure graph.
-    private Spinner spinner;
-    Boolean enable_spinner=false;
-
+    private EditText sensitivity_value;
     private EditText exposure_value;
     private Button btexp;
     private GraphView graph;
@@ -39,53 +37,65 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
     // scale factor between GUI and camera driver exposure units:
     final int scale_factor = 1000;
 
-    // We only want to update settings if User updates them through interaction.
-    // The initial automatic call to onItemSelected (located even after onResume!)
-    // would mess this up when the settings are updated elsewhere.  This boolean
-    // allows us to ignore the first call to onItemSelected.
-
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        enable_spinner = false; // avoid initial automatic onItemSelected call blowing away correct value.
         View view = inflater.inflate(R.layout.fragment_exposure, container, false);
         LoseFocusOnDone loseFocusOnDone = new LoseFocusOnDone(view);
         MainActivity m = (MainActivity) getActivity();
         app = m.getApp();
         exposure=new ExposureCheck(app);
 
-        //setup the ISO spinner:
-        spinner = (Spinner) view.findViewById(R.id.sensspinner);
-        ArrayList<String> iso_list = new ArrayList<String>();
-        int iso = app.getCamera().min_sens;
-        while (iso > 0 && iso <= app.getCamera().max_sens) {
-            String s = iso + " ISO";
-            iso_list.add(s);
-            iso = iso * 2;
-        }
-        ArrayAdapter adapter = new ArrayAdapter(getContext(), android.R.layout.simple_spinner_item, iso_list.toArray());
-        spinner.setAdapter(adapter);
+        // notify user of the valid range of sensitivity and exposure times:
+        TextView stextView = (TextView) view.findViewById(R.id.sensitivity_range);
+        String srange = "range:  " + app.getCamera().min_sens + " to " + app.getCamera().max_sens + "\n";
+        stextView.setText(srange);
 
-        // notify user of the valid range of exposure times:
-        TextView textView = (TextView) view.findViewById(R.id.exposure_range);
-        String range = "range:  " + (int) (app.getCamera().min_exp / scale_factor) + " to " + (int) (app.getCamera().max_exp / scale_factor) + "\n";
-        textView.setText(range);
+        TextView etextView = (TextView) view.findViewById(R.id.exposure_range);
+        String erange = "range:  " + (int) (app.getCamera().min_exp / scale_factor) + " to " + (int) (app.getCamera().max_exp / scale_factor) + "\n";
+        etextView.setText(erange);
 
+        sensitivity_value = (EditText) view.findViewById(R.id.sensitivity_value);
         exposure_value = (EditText) view.findViewById(R.id.exposure_value);
+
 
         param_updater = app.getMessage().onSettingUpdate(new Runnable() {
             public void run() {
-                int isens = app.getSettings().isens;
-                spinner.setSelection(isens);
-                String value = "" + (int) app.getSettings().exposure / scale_factor;
-                exposure_value.setText(value);
-                app.log.append("Exposure settings:  iso index " + isens +  " exposure:  " + value + "\n");
+                String svalue = "" + app.getSettings().getSensitivity();
+                sensitivity_value.setText(svalue);
+
+                String evalue = "" + app.getSettings().exposure / scale_factor;
+                exposure_value.setText(evalue);
+
+                app.log.append("Exposure settings:  sensitivity " + svalue +  " exposure:  " + evalue + "\n");
             }
         });
         app.getMessage().updateSetting();
 
-        spinner.setOnItemSelectedListener(this);
+        sensitivity_value.setOnEditorActionListener(loseFocusOnDone);
         exposure_value.setOnEditorActionListener(loseFocusOnDone);
+
+        sensitivity_value.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                //Log.app.append("onFocusChange called, hasFocus: " + hasFocus + "\n");
+                if (!hasFocus) {
+                    String s = sensitivity_value.getText().toString();
+                    if (s.length() > 6) {
+                        app.getSettings().exposure = app.getCamera().max_sens;
+                    } else {
+                        int val = Integer.parseInt(s);
+                        if (val < app.getCamera().min_sens)
+                            val = app.getCamera().min_sens;
+                        if (val > app.getCamera().max_sens)
+                            val = app.getCamera().max_sens;
+                        app.getSettings().sens = val;
+                    }
+                    app.log.append("User input for exposure value: " + s + "\n");
+                    app.getMessage().updateSetting();
+                }
+            }
+        });
 
         exposure_value.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
@@ -109,6 +119,7 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
                 }
             }
         });
+
 
         btexp = (Button) view.findViewById(R.id.button_check_exposure);
         btexp.setOnClickListener(this);
@@ -150,22 +161,8 @@ public class ExposureFragment extends Fragment implements AdapterView.OnItemSele
 
     @Override public void onPause (){
         //Log.app.append("view paused.\n");
-        enable_spinner = false;
         super.onPause();
     }
-
-    @Override public void onItemSelected(AdapterView<?> parent, View view,
-                               int pos, long id) {
-        int isens = app.getSettings().isens;
-        if (enable_spinner) {
-            app.log.append("New ISO spinner value selected:  " + pos + " old setting:  " + isens + "\n");
-            app.getSettings().isens = pos;
-        } else {
-            app.log.append("Ignoring first call to onItemSelected for ISO spinner\n");
-            enable_spinner = true;
-        }
-    }
-    @Override public void onNothingSelected(AdapterView<?> parent){};
 
     @Override public void onClick(View view) {
         if (view == btexp) {

@@ -22,18 +22,27 @@ public class HotCells implements Analysis {
     int pixel_num;
 
     // algorithm parameters:
+    final int hand_pixels[] = {};
+    final int run_sens[]      = {640,1280,320,160,640,1280,320,160,640,1280,320,160,640,1280,320,160};
+    final long expa = 500000000;
+    final long expb = 50000000;
+    final long expc = 5000000;
+    final long expd = 32000;
+    final long run_exposure[] = {expa,expa,expa,expa,expb,expb,expb,expb,expc,expc,expc,expc,expd,expd,expd,expd};
     final int images = 1000;
     int step = 10;
     int pixel_pick = 10; // number of pixels to pick randomly from each category
+
 
     // list of chosen pixels to record pixel values:
     int chosen_pixels[];
 
     int sum[];
     int sumsq[];
-    float mean[];
-    float var[];
     short pixel_data[];
+
+    // track run index, to cycle through iso and exposure values.
+    int run_index;
 
     // counts:
     int requested;
@@ -64,52 +73,49 @@ public class HotCells implements Analysis {
             pixel_num = nxr * nyr;
         }
         geom = new Geometry(nx, ny);
+        run_index = 0;
     }
 
     public void Init() {
-        // TODO:  provide a proto-image to Init from DaqWorker.
         requested = 0;
         processed = 0;
-        app.log.append("Geometry self test output:  ");
-        app.log.append(Geometry.SelfTest());
 
         File path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
                 "FishStand");
         path.mkdirs();
         String filename = "hotcells_" + System.currentTimeMillis() + ".dat";
         outfile = new File(path, filename);
+
         if (sum == null) {
             sum = new int[pixel_num];
         }
         if (sumsq == null) {
             sumsq = new int[pixel_num];
         }
-        if (mean == null) {
-            mean = new float[pixel_num];
-            for (int i = 0; i < pixel_num; i++) {
-                mean[i] = 0;
-            }
+
+        // calculate mean and variance from the previous run:
+        float mean[] = new float[pixel_num];
+        float var[] = new float[pixel_num];
+        for (int i = 0; i < pixel_num; i++) {
+            mean[i] = ((float) sum[i]) / images;
+            var[i] = ((float) sumsq[i]) / images - mean[i] * mean[i];
         }
-        if (var == null) {
-            var = new float[pixel_num];
-            for (int i = 0; i < pixel_num; i++) {
-                var[i] = 0;
-            }
-        }
+
+        // clear histograms to prepare for next run (doesn't include mean and variance):
         clear_histograms();
+
 
         // find lit and variant pixels
         List<Integer> lit_pixels = new ArrayList<Integer>();
         List<Integer> var_pixels = new ArrayList<Integer>();
         List<Integer> nrm_pixels = new ArrayList<Integer>();
-        List<Integer> chosen     = new ArrayList<Integer>();
 
         for (int i = 0; i < pixel_num; i++) {
             if (var[i] > 50 + 6 * mean[i]) {
                 var_pixels.add(i);
             } else if (mean[i] > 10) {
                 lit_pixels.add(i);
-            } else if ((mean[i] < 5) && (var[i]<20)){
+            } else if ((mean[i] < 5) && (var[i] < 20)) {
                 nrm_pixels.add(i);
             }
         }
@@ -117,28 +123,44 @@ public class HotCells implements Analysis {
         app.getDaq().log.append("variant pixels " + var_pixels.size() + "\n");
         app.getDaq().log.append("normal pixels  " + nrm_pixels.size() + "\n");
 
-        // put in random order, so first N will be randomly chosen:
-        Collections.shuffle(lit_pixels);
-        Collections.shuffle(var_pixels);
-        Collections.shuffle(nrm_pixels);
-        for (int i = 0; i < pixel_pick; i++) {
-            if (i<nrm_pixels.size())
-                chosen.add(nrm_pixels.get(i));
-            if (i<lit_pixels.size())
-                chosen.add(lit_pixels.get(i));
-            if (i<var_pixels.size())
-                chosen.add(var_pixels.get(i));
-        }
-        app.getDaq().log.append("chosen pixels  " + chosen.size() + "\n");
+        // chosen pixels are finalized at start of run index 1, and are then held constant:
+        if (run_index < 2) {
+            List<Integer> chosen = new ArrayList<Integer>();
 
-        Collections.sort(chosen);
-        chosen_pixels = new int[chosen.size()];
-        int i = 0;
-        for (Integer x: chosen) {
-            chosen_pixels[i] = x;
-            i++;
+            // fist add any hand chosen pixels
+            for (Integer x : hand_pixels){
+                chosen.add(x);
+            }
+
+            // put pixels in random order, so first N will be randomly chosen:
+            Collections.shuffle(lit_pixels);
+            Collections.shuffle(var_pixels);
+            Collections.shuffle(nrm_pixels);
+
+            for (int i = 0; i < pixel_pick; i++) {
+                if (i < nrm_pixels.size())
+                    chosen.add(nrm_pixels.get(i));
+                if (i < lit_pixels.size())
+                    chosen.add(lit_pixels.get(i));
+                if (i < var_pixels.size())
+                    chosen.add(var_pixels.get(i));
+            }
+            app.getDaq().log.append("chosen pixels  " + chosen.size() + "\n");
+            Collections.sort(chosen);
+            chosen_pixels = new int[chosen.size()];
+            int i = 0;
+            for (Integer x : chosen) {
+                chosen_pixels[i] = x;
+                i++;
+            }
         }
-        pixel_data = new short[chosen_pixels.length*images];
+        pixel_data = new short[chosen_pixels.length * images];
+
+        app.getSettings().sens     = run_sens[run_index%run_sens.length];
+        app.getSettings().exposure = run_exposure[run_index%run_exposure.length];
+        app.getDaq().log.append("run sensitivity:  " + app.getSettings().sens + "\n");
+        app.getDaq().log.append("run exposure (mus):     " + app.getSettings().exposure/1000 + "\n");
+
     }
 
     public Boolean Next(CaptureRequest.Builder request){
@@ -222,22 +244,11 @@ public class HotCells implements Analysis {
             for (int i = 0; i < pixel_num; i++) {
                 writer.writeInt(sumsq[i]);
             }
-            for (int i = 0; i < pixel_num; i++) {
-                writer.writeFloat(mean[i]);
-            }
-            for (int i = 0; i < pixel_num; i++) {
-                writer.writeFloat(var[i]);
-            }
         } catch (IOException e) {
             app.getDaq().log.append("ERROR opening output file.\n");
             e.printStackTrace();
         }
-        // calculate mean and variance for use in next run:
-        for (int i = 0; i < pixel_num; i++) {
-            mean[i] = ((float) sum[i]) / images;
-            var[i] = ((float) sumsq[i]) / images - mean[i] * mean[i];
-        }
-
+        run_index++;
     }
     public String getName(int iparam){return "";}
     public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT

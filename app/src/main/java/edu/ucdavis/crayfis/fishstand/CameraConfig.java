@@ -45,6 +45,8 @@ public class CameraConfig {
     public long max_frame=0;
     public int min_sens=0;
     public int max_sens=0;
+    public int max_analog=0;
+
 
     public CameraConfig(final App app){
         this.app = app;
@@ -167,10 +169,16 @@ public class CameraConfig {
                 min_sens = rsens.getLower();
                 max_sens = rsens.getUpper();
                 summary += "Sensitivity range:  " + min_sens + " to " + max_sens + " (ISO)\n";
+
+                max_analog = cchars.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
+                summary += "Make Analog Sensitivity:  " + max_analog + "\n";
+
+                Boolean shading = cchars.get(CameraCharacteristics.SENSOR_INFO_LENS_SHADING_APPLIED);
+                summary += "Lens shading correction applied to RAW:  " + shading + "\n";
                 log.append(summary);
 
                 app.getSettings().exposure = max_exp;
-                app.getSettings().isens = 0;
+                app.getSettings().sens = max_analog;
                 app.log.append("Camera settings initialized.\n");
                 app.getMessage().updateSetting();
                 cmanager.openCamera(cid, deviceCallback, app.getBkgHandler());
