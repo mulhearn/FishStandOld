@@ -4,6 +4,7 @@ import java.lang.System;
 
 import android.graphics.Bitmap;
 import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.params.LensShadingMap;
 import android.view.Surface;
 import android.media.Image;
 import android.media.ImageReader;
@@ -184,7 +185,6 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         app.getCamera().ireader.setOnImageAvailableListener(this, app.getBkgHandler());
 
         log.clear();
-        log.append("init success\n");
 
         processing = 0;
         events = 0;
@@ -193,11 +193,13 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         lost=0;
 
         app.getChosenAnalysis().Init();
-
         state = State.INIT;
 
         // turning off setting for auto-rerun will stop the rerun loop.
         if (app.getSettings().auto_rerun == false) rerun = false;
+
+        log.append("init complete\n");
+
         // if we are in a rerun loop, automatically call Run().
         if (rerun){
             log.append("automatically starting another run.\n");
@@ -285,6 +287,9 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
                 float fl = (float) 0.0;
                 captureBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, fl); // put focus at infinity
                 captureBuilder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF); // need to see if any effect
+                captureBuilder.set(CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_OFF); // need to see if any effect!
+                captureBuilder.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE_OFF); // need to see if any effect!
+
 
                 Image img = app.getCamera().ireader.acquireLatestImage();
                 if (img != null){
@@ -312,7 +317,17 @@ public class DaqWorker implements ImageReader.OnImageAvailableListener {
         @Override public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
             long exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
             long iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+            //LensShadingMap map = result.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
             log.append("capture complete with exposure " + exp + " sensitivity " + iso + "\n");
+            //if (map != null) {
+            //    int max = map.getGainFactorCount();
+            //    log.append("shading map has dimension " + map.getColumnCount() + " by " + map.getRowCount() + " factors " + max + "\n");
+            //    float g[] = new float[max];
+            //    map.copyGainFactors(g,0);
+            //    for (int i=0; i<max; i++){
+            //        log.append("" + i + ":  " + g[i] + "\n");
+            //    }
+            //}
             super.onCaptureCompleted(session, request, result);
         }
     };

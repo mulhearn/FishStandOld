@@ -13,7 +13,7 @@ public class AnalysisConfig {
         chosen = Photo.newPhoto(app);
     }
     public Analysis chosen;
-    public String[] Analyses = {"Photo","Gain","DarkNoise","HotCells","Cosmics"};
+    public String[] Analyses = {"Photo","Gain","Shading","Noise","Cosmics"};
     public void select(int pos) {
         if (app.getDaq().getState() != DaqWorker.State.STOPPED) {
             app.log.append("Attempt to change analysis when not STOPPED ignored.\n");
@@ -24,8 +24,8 @@ public class AnalysisConfig {
             app.log.append("New analysis constructed at position " + pos + ".\n");
             if (pos == 0) chosen = Photo.newPhoto(app);
             else if (pos == 1) chosen = Gain.newGain(app);
-            else if (pos == 2) chosen = DarkNoise.newDarkNoise(app);
-            else if (pos == 3) chosen = HotCells.newHotCells(app);
+            else if (pos == 2) chosen = Shading.newShading(app);
+            else if (pos == 3) chosen = Noise.newHotCells(app);
             else if (pos == 4) chosen = Cosmics.newCosmics(app);
             app.getMessage().updateSetting();
         } else {

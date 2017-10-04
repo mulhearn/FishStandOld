@@ -1,5 +1,6 @@
 package edu.ucdavis.crayfis.fishstand;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
@@ -43,6 +44,10 @@ public class App implements Runnable {
         new Thread(this).start();
         log      = new Log(new Runnable() {public void run(){getMessage().updateLog();}});
         log.append("Fish Stand started on " + DateFormat.getDateTimeInstance().format(new Date(System.currentTimeMillis())) + "\n");
+
+        ActivityManager act = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        int mem = act.getMemoryClass();
+        log.append("Memory class " + mem + " MBytes\n");
     }
 
     // Sent toasts on the UI thread:

@@ -1,251 +1,475 @@
 package edu.ucdavis.crayfis.fishstand;
 
+import android.content.Context;
 import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.os.Environment;
 import android.text.InputType;
 
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Random;
 
 
 public class Cosmics implements Analysis {
     final App app;
+    InvertShading inv;
+    RegionLock lock;
+    Geometry geom;
+    Random rand;
+    int images = 1000;
 
-    // algorithm parameters:
-    final int pixel_thresh   = 100;
-    final int nbr_thresh     = 200;
-    final int total          = 20000;
-    final int margin = 300;
-    final int cell_size = 100;
-    final int zero_bias_prescale = 10000; // keep 1 cell per N
-    final int hot_thresh = 2;
+    // the surveyed grid in relative units:
+    //float fxl = 0.1F;
+    //float fxr = 0.9F;
+    //float fyl = 0.1F;
+    //float fyr = 0.9F;
+    float fxl = 0.25F;
+    float fxr = 0.75F;
+    float fyl = 0.25F;
+    float fyr = 0.75F;
+
+    // step size in x and y when traversing grid:
+    int pixel_step = 1;
+
+    // pixel quality monitoring sums:
+    float scale;  // iso scale factor for sums
+    int sum[];
+    int sumsq[];
+    short nonzero[];
+
+    // list of bad pixels:
+    int bad_pixels[];
+
+    // maximum number of regions:
+    // (for simplicity, the number of regions is the same as the monitoring period)
+    int num_regions = 20;
+    // starting index of bad channel list for each region:
+    int bad_start[];
+    // has a full calibration been obtained yet?
+    Boolean calibrated=false;
+    // phase in the monitoring cycle
+    int mon_phase=0;
 
     // counts:
     int requested;
     int processed;
-    long cells;
 
-    GridGeometry grid;
-    HotCellVeto  hotveto;
+    long good_hist[][];
+    short hist_max = 100;
+    int num_histx;
 
-    CharHist maxhist; // max pixel in each cell
-    CharHist avghist; // avg of all pixels in cell
-    final Random rnd;
-    CharHist rndhist; // a randomly chosen pixel from each cell
-    CharHist clnhist; // max clean pixel in each cell
-    CharHist nbrhist; // highest neigbor
+    File path;
+    String outfilename;
+    String trigfilename;
 
+    // trigger menu:
+    int num_zb = 20;
+    int thresh[]   = {30, 25, 20,  15};
+    int prescale[] = { 0, 10, 100, 1000};
 
-    CharHist occhist; // occupancy of pixels above hot pixel threshold
-
-    File trigfile;
-
-    public static Analysis newCosmics(App app){
+    public static Analysis newCosmics(App app) {
         Cosmics x = new Cosmics(app);
         return x;
     }
 
     private Cosmics(final App app) {
         this.app = app;
-        rnd = new Random();
+        scale=1.0F;
+        int nx = app.getCamera().raw_size.getWidth();
+        int ny = app.getCamera().raw_size.getHeight();
+        geom = new Geometry(nx,ny);
+        inv = new InvertShading(nx,ny);
+
+        geom.SetMargins(fxl,fxr,fyl,fyr);
+        geom.SetPixelStep(pixel_step);
+        geom.SetNumRegions(num_regions);
+        num_regions = geom.num_regions;
+        lock = new RegionLock(num_regions);
+        num_histx = num_regions;
+        good_hist = new long[num_histx*num_regions][hist_max+1];
+        rand = new Random();
     }
 
-    public void Init(){
-        // TODO:  provide a proto-image to Init from DaqWorker.
-    	requested=0;
-	    processed=0;
-        cells=0;
-        maxhist = new CharHist((char) 1024, (char) 3);
-        avghist = new CharHist((char) 1024, (char) 3);
-        clnhist = new CharHist((char) 1024, (char) 3);
-        nbrhist = new CharHist((char) 1024, (char) 3);
-        occhist = new CharHist((char) 100, (char) 0);
+    public void Init() {
+        requested = 0;
+        processed = 0;
 
-        File path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+        if (mon_phase >= num_regions){
+            mon_phase = 0;
+        }
+
+        app.getDaq().log.append("initializing...\n");
+
+
+
+        // run the Geometry class self test:
+        //String s = Geometry.SelfTest();
+        //app.log.append(s);
+
+        if (!calibrated) {
+            app.getDaq().log.append("allocating memory for sums... please wait.\n");
+            sum = new int[geom.num_pixel];
+            sumsq = new int[geom.num_pixel];
+            nonzero = new short[geom.num_pixel];
+            for (int i = 0; i < geom.num_pixel; i++) {
+                sumsq[i] = 8 * images;  // so initially, we collect "bulk" pixels
+            }
+            scale = 640 / ((float) app.getSettings().sens);
+        }
+
+        path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
                 "FishStand");
         path.mkdirs();
-        String filename = "triggered_" + System.currentTimeMillis() + ".dat";
-        trigfile = new File(path, filename);
+        long tstamp = System.currentTimeMillis();
+        outfilename = "cosmics_" + tstamp + ".dat";
+        trigfilename = "trig_" + tstamp + ".dat";
 
-        synchronized(this) {
-            try {
-                FileOutputStream writer = new FileOutputStream(trigfile);
-                byte header[] = {(byte) 0xCF, (byte) 0xFF, (byte) 0x55, (byte) 0x77, (byte) 0x57, (byte) 0x75};
-                writer.write(header);
-                int val = -4403;
-                writer.write(val&0xff);
-                writer.write((val>>8)&0xff);
-                writer.flush();
-                writer.close();
-            } catch (IOException e) {
-                app.getDaq().log.append("ERROR opening txt file in CharHist.");
-                e.printStackTrace();
+        app.getDaq().log.append("updating bad pixel list... please wait.\n");
+        List<Integer> bad = new ArrayList<Integer>();
+
+        float fshade[] = new float[geom.num_pixel];
+        int short_index = 0;
+        for (int x = geom.xl; x < geom.xr; x += pixel_step) {
+            for (int y = geom.yl; y < geom.yr; y += pixel_step) {
+                fshade[short_index] = 1.0F/(float) inv.getfactor(x, y);
+                short_index++;
             }
         }
-        // Validate the GridGeometry class:
-        //BkgWorker.getBkgWorker().daq.summary += GridGeometry.selfTest();
-        //BkgWorker.getBkgWorker().daq.update = true;
+        for (int i = 0; i < geom.num_pixel; i++) {
+            float f = fshade[i];
+            float mean = f * scale * ((float) sum[i]) / images;
+            float var = f * f * scale * scale * ((float) sumsq[i]) / images - mean * mean;
+
+            float x = (mean - 2.0F);
+            if ((mean > 10) || (var > 50)) {
+                bad.add(i);
+            } else if ((mean > 2) && (var < 3 * x * x)) {
+                bad.add(i);
+            } else if (var > 16) {
+                bad.add(i);
+                //} else if (var>11) {
+                //    bad.add(i);
+                //}
+            }
+        }
+
+        // now that we've used last mean and var, we can reset the sums for this run:
+        // if not calibrated, we'll be monitoring every pixel:
+        if (!calibrated) {
+            for (int ipixel = 0; ipixel < geom.num_pixel; ipixel++) {
+                sum[ipixel] = 0;
+                sumsq[ipixel] = 0;
+                nonzero[ipixel] = 0;
+            }
+        }
+        // once calibrated, we only update one region per run:
+        for (int ipixel = geom.GetRegionStart(mon_phase); ipixel < geom.GetRegionEnd(mon_phase); ipixel++) {
+            sum[ipixel] = 0;
+            sumsq[ipixel] = 0;
+            nonzero[ipixel] = 0;
+        }
+
+        // also clear the good pixel histogram for this run:
+        for (int i=0; i<num_histx*num_regions; i++){
+            for (int j=0; j<=hist_max; j++){
+                good_hist[i][j]=0;
+            }
+
+        }
+        
+        Collections.sort(bad);
+        bad_pixels = new int[bad.size()];
+        int index = 0;
+        for (Integer x : bad) {
+            bad_pixels[index] = x;
+            index++;
+        }
+        bad_start = new int[geom.num_regions];
+        for (int i=0;i<num_regions;i++){
+            int region_start = geom.region_start[i];
+            int ibad = 0;
+            while ((ibad<bad_pixels.length)&&(bad_pixels[ibad]<region_start)){
+                ibad++;
+            }
+            bad_start[i] = ibad;
+        }
+        app.getDaq().log.append("number of bad pixels:     " + bad_pixels.length + "\n");
+
+        app.log.append("surveyed window:  " + geom.xl + ", " + geom.xr + ", " + geom.yl + ", " + geom.yr + "\n");
+        app.log.append("surveyed pixels     " + geom.num_pixel + "\n");
+        String s = "";
+        s += "num_regions = " + geom.num_regions + "\n";
+        for (int i=0; i<geom.num_regions; i++){
+            s += i + ": yl: " + geom.region_yl[i] + ": yr: " + geom.region_yr[i] + " start: " + geom.region_start[i] + "\n";
+        }
+        app.log.append(s);
 
     }
 
+
+
     public Boolean Next(CaptureRequest.Builder request){
-        if (requested < total){
-	    // CaptureRequest has been set as configured for ISO, eposure, etc already,
-	    // but can be overriden here if, e.g, you want to scan exposure times.
+        if (requested < images){
+            requested++;
             return true;
         } else {
             return false;
         }
     }
     public Boolean Done() {
-        if (processed >= total) { return true; }
+        if (processed >= images) { return true; }
         else { return false; }	
+    }
+
+    private void AppendWindow(List<Integer> trig_buf, ByteBuffer buf, int nx, int ps, int trig, int ix, int iy){
+        //app.log.append("adding triger at " + ix +", " + iy + "\n");
+
+        int max = 28000;
+        if (trig_buf.size() >= max){
+            return;
+        }
+        final int w= 2;
+        trig_buf.add(trig);
+        trig_buf.add(ix);
+        trig_buf.add(iy);
+        for (int y=iy-w; y<=iy+w; y+=1){
+            for (int x=ix-w; x<=ix+w; x+=1){
+                int full_index = y * nx + x;
+                short b = buf.getShort(ps * full_index);
+                trig_buf.add((int) b);
+            }
+        }
     }
 
     public void ProcessImage(Image img) {
         Image.Plane iplane = img.getPlanes()[0];
         ByteBuffer buf = iplane.getBuffer();
 
-        if (grid == null) {
-            grid = new GridGeometry(img.getWidth(), img.getHeight(), margin, cell_size);
-        }
-        if (hotveto == null){
-            int events = 100;
-            if (total < 200) events = total / 2;
-            hotveto = new HotCellVeto(events, hot_thresh, img.getHeight()*img.getWidth());
-        }
-
-        boolean calibrated = hotveto.isCalibrated();
-
-        int ncell = grid.getNumCells();
-
         int nx = img.getWidth();
+        int ny = img.getHeight();
         int ps = iplane.getPixelStride();
-        for (int icell = 0; icell < ncell; icell++) {
-            boolean prescale = false;
-            if ((cells % zero_bias_prescale) == 0) prescale = true;
 
-            int start = grid.getRawCellStart(icell);
-            short max = 0;
-            short cmax = 0;
-            int cmax_x = 0;
-            int cmax_y = 0;
+        Boolean todo[] = lock.newToDoList();
+        List<Integer> trig_buf = new ArrayList<Integer>();
+        int ntrig[] = new int[thresh.length];
+        do {
+            int region = lock.lockRegion(todo);
+            while (region < 0) {
+                // no unfinished and available region, so wait a spell:
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                region = lock.lockRegion(todo);
+            }
+            // I have exclusive access to region <region>
 
-            int sum = 0;
-            for (int x = 0; x < cell_size; x++) {
-                for (int y = 0; y < cell_size; y++) {
-                    int index = start + y * nx + x;
-                    short b = buf.getShort(ps * index);
-                    sum = sum + (int) b;
-                    if (b > pixel_thresh) {
-                        hotveto.addPixel(index);
-                        if (b > max) max = b;
-                        if (calibrated && (b > cmax) && (!hotveto.isHot(index))) {
-                            cmax = b;
-                            cmax_x = x;
-                            cmax_y = y;
+            // first perform calibration if required:
+            if ((!calibrated) || (region == mon_phase)) {
+                int short_index = geom.region_start[region];
+                for (int y = geom.region_yl[region]; y < geom.region_yr[region]; y += geom.pixel_step) {
+                    for (int x = geom.xl; x < geom.xr; x += geom.pixel_step) {
+                        int full_index = y * nx + x;
+                        if (short_index >= geom.num_pixel) {
+                            app.log.append("ERROR:  short_index " + short_index + " is too large\n");
+                            continue;
                         }
+                        short b = buf.getShort(ps * full_index);
+                        nonzero[short_index]++;
+                        if (b > 0) {
+                            sum[short_index] += b;
+                            sumsq[short_index] += b * b;
+                        }
+                        short_index++;
                     }
                 }
-                cells++;
             }
-            int avg = (int) ((double) sum) / (cell_size * cell_size);
-            if (maxhist != null) maxhist.increment(max);
-            if ((calibrated) && (clnhist != null)) clnhist.increment(cmax);
-            if (avghist != null) avghist.increment((short) avg);
-            short nmax = 0;
-            int nind = 0;
-            if (cmax > pixel_thresh) {
-                int[] ns = grid.neighbors(icell, cmax_x, cmax_y);
-                for (int i = 0; i < ns.length; i++) {
-                    int index = ns[i];
-                    if (index < 0) continue;
-                    if (hotveto.isHot(index)) continue;
-                    short b = buf.getShort(ps * index);
-                    if (b > nmax) {
-                        nmax = b;
-                        nind = index;
-                    }
-                }
-                if ((calibrated) && (nbrhist != null)) nbrhist.increment(nmax);
-            }
-            if (calibrated && (prescale || (nmax > nbr_thresh))){
-                synchronized(this){
-                    try {
-                        FileOutputStream writer = new FileOutputStream(trigfile, true);
-                        writer.write((int) 0xcf);
-                        writer.write((int) 0xee);
-                        writer.write((int) icell&0xff);
-                        writer.write((int) (icell>>8)&0xff);
+            // next perform trigger analysis on good channels:
+            int short_index = geom.region_start[region];
+            int bad_index = bad_start[region];
+            int next_bad = -1;
+            if (bad_index < bad_pixels.length)
+                next_bad = bad_pixels[bad_index];
+            for (int y = geom.region_yl[region]; y < geom.region_yr[region]; y += geom.pixel_step) {
+                for (int x = geom.xl; x < geom.xr; x += geom.pixel_step) {
+                    if (short_index == next_bad) {
+                        bad_index++;
+                        if (bad_index < bad_pixels.length) {
+                            next_bad = bad_pixels[bad_index];
+                        }
+                    } else {
+                        float f = (float) inv.getfactor(x,y);
+                        int full_index = y * nx + x;
+                        short b = buf.getShort(ps * full_index);
 
-                        if (prescale) writer.write((int) 0);
-                        else          writer.write((int) 1);
-                        writer.write((int) 0);
-                        writer.write((int) cell_size);
-                        writer.write((int) 0);
-                        writer.write((int) cmax_x);
-                        writer.write((int) 0);
-                        writer.write((int) cmax_y);
-                        writer.write((int) 0);
-                        byte mlower = (byte) (nmax&0xff);
-                        byte mupper = (byte) ((nmax>>8)&0xff);
-                        writer.write(mlower);
-                        writer.write(mupper);
-                        writer.write(nind&0xff);
-                        writer.write((nind>>8)&0xff);
-                        writer.write((nind>>16)&0xff);
-                        writer.write((nind>>24)&0xff);
-                        for (int x = 0; x < cell_size; x++) {
-                            for (int y = 0; y < cell_size; y++) {
-                                int index = start + y * nx + x;
-                                int b = (int) buf.getShort(ps * index);
-                                if (hotveto.isHot(index)){ b = -b; }
-                                byte lower = (byte) (b&0xff);
-                                byte upper = (byte) ((b>>8)&0xff);
-                                writer.write(lower);
-                                writer.write(upper);
+                        if (calibrated) {
+                            // apply trigger requirements and prescales:
+                            for (int itrig = 0; itrig < thresh.length; itrig++) {
+                                if (b > thresh[itrig] * f) {
+                                    if (prescale[itrig] == 0) {
+                                        AppendWindow(trig_buf, buf, nx, ps, itrig + 1, x, y);
+                                        ntrig[itrig]++;
+                                        break;
+                                    } else {
+                                        double throwx = rand.nextDouble() * prescale[itrig];
+                                        if (throwx < 1.0) {
+                                            AppendWindow(trig_buf, buf, nx, ps, itrig + 1, x, y);
+                                            ntrig[itrig]++;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
-                        writer.flush();
-                        writer.close();
-                    } catch (IOException e) {
-                        app.getDaq().log.append("ERROR opening txt file in CharHist.");
-                        e.printStackTrace();
+                        // fill regional good channel histogram
+                        b = (short) (b / f);
+                        int ixbin = (x-geom.xl)*num_histx/geom.xw;
+                        if (b>100) {
+                            b = 100;
+                        }
+                        good_hist[region*num_histx+ixbin][b] += 1;
                     }
+                    short_index++;
                 }
             }
+            lock.releaseRegion(region);
+        } while(lock.stillWorking(todo));
+
+        for (int i=0;i<num_zb; i++){
+            int x = geom.xl + (int) (geom.xw*rand.nextDouble());
+            int y = geom.yl + (int) (geom.yh*rand.nextDouble());
+            AppendWindow(trig_buf, buf, nx, ps, 0, x, y);
         }
-        hotveto.addEvent();
-        processed = processed + 1;
+
+        String s = "image processing complete:  \n";
+        for (int i=0; i<ntrig.length; i++) {
+            s += "thresh " + thresh[i] + " prescale " + prescale[i] + " ntrig:  " + ntrig[i] + "\n";
+        }
+        app.getDaq().log.append(s);
+        synchronized(this) {
+            try {
+
+                FileOutputStream outstream = new FileOutputStream(new File(path,trigfilename),true);
+                DataOutputStream writer = new DataOutputStream(outstream);
+                final int HEADER_SIZE = 3;
+                final int VERSION = 1;
+                writer.writeLong(img.getTimestamp());
+                writer.writeInt(HEADER_SIZE);
+                writer.writeInt(VERSION);
+                // additional header items
+                writer.writeInt(ntrig.length);
+                writer.writeInt(num_zb);
+                writer.writeInt(trig_buf.size());
+                for (int x : ntrig) {
+                    writer.writeInt(x);
+                }
+                for (int x : trig_buf) {
+                    writer.writeInt(x);
+                }
+                writer.flush();
+                writer.close();
+            } catch (IOException e) {
+                app.getDaq().log.append("ERROR opening output file.\n");
+                e.printStackTrace();
+            }
+            processed++;
+        }
     }
 
-    public void ProcessRun(){
-
-        if (hotveto != null) {
-            int hot[] = hotveto.hotCount();
-            if (hot != null) {
-                if (occhist != null) {
-                    for (int i = 0; i < hot.length; i++) {
-                        occhist.increment((short) hot[i]);
-                    }
+    public void ProcessRun() {
+        int region_start = geom.GetRegionStart(mon_phase);
+        int region_end   = geom.GetRegionEnd(mon_phase);
+        //int region_start = 0;
+        //int region_end = geom.num_pixel;
+        calibrated = true;
+        try {
+            FileOutputStream outstream = new FileOutputStream(new File(path,outfilename));
+            DataOutputStream writer = new DataOutputStream(outstream);
+            final int HEADER_SIZE = 21;
+            final int VERSION = 2;
+            writer.writeInt(HEADER_SIZE);
+            writer.writeInt(VERSION);
+            // additional header items
+            writer.writeInt((int) app.getSettings().getSensitivity());
+            writer.writeInt((int) app.getSettings().getExposure());
+            writer.writeInt(images);
+            writer.writeInt(processed);
+            writer.writeInt(app.getCamera().raw_size.getWidth());
+            writer.writeInt(app.getCamera().raw_size.getHeight());
+            writer.writeInt(geom.xl);
+            writer.writeInt(geom.xr);
+            writer.writeInt(geom.yl);
+            writer.writeInt(geom.yr);
+            writer.writeInt(pixel_step);
+            writer.writeInt(geom.num_pixel);
+            writer.writeInt(bad_pixels.length);
+            writer.writeInt(mon_phase);
+            writer.writeInt(region_start);
+            writer.writeInt(region_end);
+            writer.writeInt(num_regions);
+            writer.writeInt(num_histx);
+            writer.writeInt(hist_max);
+            writer.writeInt(num_zb);
+            writer.writeInt(thresh.length);
+            for (int x: thresh){
+                writer.writeInt(x);
+            }
+            for (int x: prescale){
+                writer.writeInt(x);
+            }
+            for (int x: bad_pixels){
+                writer.writeInt(x);
+            }
+            for (int i = region_start; i < region_end; i++) {
+                writer.writeInt(sum[i]);
+            }
+            for (int i = region_start; i < region_end; i++) {
+                writer.writeInt(sumsq[i]);
+            }
+            for (int i = region_start; i < region_end; i++) {
+                writer.writeShort(nonzero[i]);
+            }
+            for (long g[]: good_hist) {
+                for (long gx : g) {
+                    writer.writeLong(gx);
                 }
             }
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            app.getDaq().log.append("ERROR opening output file.\n");
+            e.printStackTrace();
         }
-
-        String postfix = "" + System.currentTimeMillis() + ".txt";
-
-        if (maxhist != null) maxhist.writeToFile("hotcells_hmax_" + postfix);
-        if (avghist != null) avghist.writeToFile("hotcells_havg_" + postfix);
-        if (occhist != null) occhist.writeToFile("hotcells_hocc_" + postfix);
-        if (clnhist != null) clnhist.writeToFile("hotcells_hcln_" + postfix);
-        if (nbrhist != null) nbrhist.writeToFile("hotcells_hnbr_" + postfix);
+        mon_phase++;
     }
-    public String getName(int iparam){return "";}
-    public int    getType(int iparam){return InputType.TYPE_CLASS_NUMBER;} // or TYPE_CLASS_TEXT
-    public String getParam(int iparam){ return ""; }
-    public void   setParam(int iparam, String value) {}
+    public String getName(int iparam) {
+        if (iparam == 0) return "images";
+        else return "";
+    }
+    public int    getType(int iparam){
+        return InputType.TYPE_CLASS_NUMBER;
+    }
+    public String getParam(int iparam){
+        if (iparam == 0) return "" + images;
+        else return "";
+    }
+    public void   setParam(int iparam, String value) {
+        if (iparam == 0) {
+            if (value.length() > 8) {
+                images = 99999999;
+            } else {
+                images = Integer.parseInt(value);
+                if (images<0) images=0;
+                if (images > 99999999) images = 99999999;
+            }
+        }
+    }
 }

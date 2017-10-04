@@ -173,6 +173,9 @@ public class CameraConfig {
                 max_analog = cchars.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
                 summary += "Make Analog Sensitivity:  " + max_analog + "\n";
 
+                int filter_arrangement = cchars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+                summary += "Color filter arrangement:  " + filter_arrangement + "\n";
+
                 Boolean shading = cchars.get(CameraCharacteristics.SENSOR_INFO_LENS_SHADING_APPLIED);
                 summary += "Lens shading correction applied to RAW:  " + shading + "\n";
                 log.append(summary);
